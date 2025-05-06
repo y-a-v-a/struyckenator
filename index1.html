@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Struyckenizer</title>
+    <style>
+      body,
+      html {
+        margin: 0;
+        padding: 0;
+        overflow: hidden;
+        width: 100%;
+        height: 100%;
+        background-color: #f0f0e8;
+      }
+      canvas {
+        display: block;
+      }
+      .controls {
+        position: absolute;
+        bottom: 10px;
+        left: 10px;
+        background: rgba(255, 255, 255, 0.7);
+        padding: 10px;
+        border-radius: 5px;
+        font-family: sans-serif;
+      }
+      .controls button {
+        margin: 5px;
+        padding: 5px 10px;
+        cursor: pointer;
+      }
+      .controls div {
+        margin: 8px 0;
+      }
+      #timer {
+        display: inline-block;
+        width: 30px;
+        text-align: right;
+        margin-left: 5px;
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="canvas"></canvas>
+    <div class="controls">
+      <button id="regenerate">Regenerate</button>
+      <button id="toggleControls">Hide Controls</button>
+      <div>
+        <label for="gradientStrength">Gradient Strength: </label>
+        <input type="range" id="gradientStrength" min="0" max="1" step="0.05" value="0.45" />
+        <span id="gradientValue">0.45</span>
+      </div>
+      <div>
+        <label for="blackProbability">Base Density: </label>
+        <input type="range" id="blackProbability" min="0" max="1" step="0.05" value="0.35" />
+        <span id="densityValue">0.35</span>
+      </div>
+      <div>
+        <label for="autoRefresh">Auto Refresh: </label>
+        <input type="checkbox" id="autoRefresh" />
+        <span id="timer">21s</span>
+      </div>
+    </div>
+
+    <script>
+      // Canvas setup
+      const canvas = document.getElementById('canvas');
+      const ctx = canvas.getContext('2d');
+
+      // Parameters that can be adjusted
+      const config = {
+        // Cell size (pixels)
+        cellSize: 20,
+        // Base probability of a cell being black (0-1)
+        blackProbability: 0.35,
+        // Clustering factor - higher means more clustering of similar colors
+        clusteringFactor: 0.32,
+        // Strength of the left-to-right gradient (0-1)
+        gradientStrength: 0.45,
+        // Noise seed
+        seed: Math.random() * 10000,
+      };
+
+      // Simple pseudo-random number generator with seed
+      function seededRandom(seed) {
+        return function () {
+          seed = (seed * 9301 + 49297) % 233280;
+          return seed / 233280;
+        };
+      }
+
+      // Generate a noise value at x,y coordinates with horizontal gradient
+      function noise(x, y, random, width) {
+        // Calculate gradient factor based on x position (0 to 1)
+        const gradientFactor = 1 - x / width;
+
+        // Adjust black probability based on position (higher on left, lower on right)
+        const adjustedProbability =
+          config.blackProbability + gradientFactor * config.gradientStrength;
+
+        return random() < adjustedProbability ? 1 : 0;
+      }
+
+      // Apply clustering to make the pattern more structured
+      function applyStructure(grid, width, height) {
+        const newGrid = new Array(width * height).fill(0);
+
+        for (let y = 0; y < height; y++) {
+          for (let x = 0; x < width; x++) {
+            const idx = y * width + x;
+
+            // Count neighbors
+            let neighbors = 0;
+            let total = 0;
+
+            // Check the 3x3 neighborhood
+            for (let ny = Math.max(0, y - 1); ny <= Math.min(height - 1, y + 1); ny++) {
+              for (let nx = Math.max(0, x - 1); nx <= Math.min(width - 1, x + 1); nx++) {
+                if (nx === x && ny === y) continue;
+                const nidx = ny * width + nx;
+                if (grid[nidx] === 1) {
+                  neighbors++;
+                }
+                total++;
+              }
+            }
+
+            // Apply clustering rules (similar to cellular automata)
+            const neighborRatio = neighbors / total;
+            const random = Math.random();
+
+            if (grid[idx] === 1) {
+              // Cell is black
+              if (neighborRatio < 0.3 && random < config.clusteringFactor) {
+                newGrid[idx] = 0; // Make it white if isolated
+              } else {
+                newGrid[idx] = 1; // Keep it black
+              }
+            } else {
+              // Cell is white
+              if (neighborRatio > 0.6 && random < config.clusteringFactor) {
+                newGrid[idx] = 1; // Make it black if surrounded by blacks
+              } else {
+                newGrid[idx] = 0; // Keep it white
+              }
+            }
+          }
+        }
+
+        return newGrid;
+      }
+
+      // Generate the image
+      function generateImage() {
+        // Resize canvas to fill window
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+
+        // Calculate grid dimensions
+        const width = Math.ceil(canvas.width / config.cellSize);
+        const height = Math.ceil(canvas.height / config.cellSize);
+
+        // Initialize random generator with seed
+        const random = seededRandom(config.seed);
+
+        // Generate initial grid
+        let grid = new Array(width * height);
+        for (let y = 0; y < height; y++) {
+          for (let x = 0; x < width; x++) {
+            grid[y * width + x] = noise(x, y, random, width);
+          }
+        }
+
+        // Apply structural clustering
+        grid = applyStructure(grid, width, height);
+
+        // Draw the grid
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        for (let y = 0; y < height; y++) {
+          for (let x = 0; x < width; x++) {
+            const cellValue = grid[y * width + x];
+            ctx.fillStyle = cellValue ? '#000000' : '#f0f0e8';
+            ctx.fillRect(
+              x * config.cellSize,
+              y * config.cellSize,
+              config.cellSize,
+              config.cellSize
+            );
+          }
+        }
+      }
+
+      // Timer variables
+      let autoRefreshEnabled = false;
+      let timerInterval = null;
+      let remainingTime = 21;
+
+      // Auto refresh function
+      function setupAutoRefresh() {
+        if (autoRefreshEnabled) {
+          clearInterval(timerInterval);
+          remainingTime = 21;
+          updateTimerDisplay();
+
+          timerInterval = setInterval(() => {
+            remainingTime--;
+            updateTimerDisplay();
+
+            if (remainingTime <= 0) {
+              config.seed = Math.random() * 10000;
+              generateImage();
+              remainingTime = 21;
+            }
+          }, 1000);
+        } else {
+          clearInterval(timerInterval);
+          document.getElementById('timer').textContent = '21s';
+        }
+      }
+
+      function updateTimerDisplay() {
+        document.getElementById('timer').textContent = remainingTime + 's';
+      }
+
+      // Event handlers
+      window.addEventListener('resize', generateImage);
+
+      document.getElementById('regenerate').addEventListener('click', () => {
+        config.seed = Math.random() * 10000;
+        generateImage();
+      });
+
+      const controlsElement = document.querySelector('.controls');
+      document.getElementById('toggleControls').addEventListener('click', () => {
+        if (controlsElement.style.display === 'none') {
+          controlsElement.style.display = 'block';
+          document.getElementById('toggleControls').textContent = 'Hide Controls';
+        } else {
+          controlsElement.style.display = 'none';
+          document.getElementById('toggleControls').textContent = 'Show Controls';
+        }
+      });
+
+      document.getElementById('gradientStrength').addEventListener('input', e => {
+        config.gradientStrength = parseFloat(e.target.value);
+        document.getElementById('gradientValue').textContent = e.target.value;
+        generateImage();
+      });
+
+      document.getElementById('blackProbability').addEventListener('input', e => {
+        config.blackProbability = parseFloat(e.target.value);
+        document.getElementById('densityValue').textContent = e.target.value;
+        generateImage();
+      });
+
+      // Set up auto refresh
+      document.getElementById('autoRefresh').addEventListener('change', e => {
+        autoRefreshEnabled = e.target.checked;
+        setupAutoRefresh();
+      });
+
+      // Initial generation
+      generateImage();
+    </script>
+  </body>
+</html>

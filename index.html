@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Geometric Grid</title>
+    <style>
+      body {
+        margin: 0;
+        padding: 0;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        height: 100vh;
+        background-color: #f0f0f0;
+        overflow: hidden;
+      }
+      canvas {
+        display: block;
+        max-width: 100vh;
+        max-height: 100vw;
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="gridCanvas"></canvas>
+
+    <script>
+      const canvas = document.getElementById('gridCanvas');
+      const ctx = canvas.getContext('2d');
+      let refreshInterval;
+
+      // Function to resize canvas
+      function resizeCanvas() {
+        // Make canvas square but fit in viewport
+        const size = Math.min(window.innerWidth, window.innerHeight) * 0.95;
+        canvas.width = size;
+        canvas.height = size;
+        drawGrid();
+
+        // Clear existing interval if any
+        if (refreshInterval) {
+          clearInterval(refreshInterval);
+        }
+
+        // Set up refresh interval (21 seconds)
+        refreshInterval = setInterval(drawGrid, 21000);
+      }
+
+      // Draw the grid and shapes
+      function drawGrid() {
+        const gridSize = 4;
+        const cellSize = canvas.width / gridSize;
+
+        // Clear canvas
+        ctx.fillStyle = 'white';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        // Draw grid cells and triangles
+        for (let row = 0; row < gridSize; row++) {
+          for (let col = 0; col < gridSize; col++) {
+            const x = col * cellSize;
+            const y = row * cellSize;
+
+            // Draw cell border (very light gray)
+            ctx.strokeStyle = '#eee';
+            ctx.strokeRect(x, y, cellSize, cellSize);
+
+            // Get random triangle configuration for this cell
+            drawTriangle(x, y, cellSize);
+          }
+        }
+      }
+
+      // Function to draw a triangle in a cell
+      function drawTriangle(x, y, size) {
+        ctx.fillStyle = 'black';
+
+        // Possible corner positions (clockwise from top-left)
+        const corners = [
+          [0, 0], // top-left
+          [size, 0], // top-right
+          [size, size], // bottom-right
+          [0, size], // bottom-left
+        ];
+
+        // Choose two different corners randomly
+        const cornerIndices = getRandomCornerIndices();
+        const corner1 = corners[cornerIndices[0]];
+        const corner2 = corners[cornerIndices[1]];
+
+        // Get a random point on one of the edges
+        const edgePoint = getRandomEdgePoint(size, cornerIndices);
+
+        // Draw the triangle
+        ctx.beginPath();
+        ctx.moveTo(x + corner1[0], y + corner1[1]);
+        ctx.lineTo(x + corner2[0], y + corner2[1]);
+        ctx.lineTo(x + edgePoint[0], y + edgePoint[1]);
+        ctx.closePath();
+        ctx.fill();
+      }
+
+      // Function to get two random different corner indices
+      function getRandomCornerIndices() {
+        const first = Math.floor(Math.random() * 4);
+        let second;
+        do {
+          second = Math.floor(Math.random() * 4);
+        } while (second === first);
+
+        return [first, second];
+      }
+
+      // Function to get the midpoint of an edge based on the position of the chosen corners
+      function getRandomEdgePoint(size, cornerIndices) {
+        const corners = [
+          [0, 0], // top-left (0)
+          [size, 0], // top-right (1)
+          [size, size], // bottom-right (2)
+          [0, size], // bottom-left (3)
+        ];
+
+        const corner1Index = cornerIndices[0];
+        const corner2Index = cornerIndices[1];
+        const corner1 = corners[corner1Index];
+        const corner2 = corners[corner2Index];
+
+        // Check if corners are on the same edge
+        const sameX = corner1[0] === corner2[0]; // Both on left or right edge
+        const sameY = corner1[1] === corner2[1]; // Both on top or bottom edge
+
+        // Determine available edges based on the relationship between corners
+        let availableEdges = [];
+
+        if (sameX || sameY) {
+          // Corners are on the same edge, choose from connecting edges
+          if (sameX) {
+            // Corners on left or right edge
+            if (corner1[0] === 0) {
+              // Both on left edge
+              availableEdges = [0, 2]; // Top or bottom edge
+            } else {
+              // Both on right edge
+              availableEdges = [0, 2]; // Top or bottom edge
+            }
+          } else {
+            // Corners on top or bottom edge
+            if (corner1[1] === 0) {
+              // Both on top edge
+              availableEdges = [1, 3]; // Right or left edge
+            } else {
+              // Both on bottom edge
+              availableEdges = [1, 3]; // Right or left edge
+            }
+          }
+        } else if (Math.abs(corner1Index - corner2Index) === 2) {
+          // Corners are at opposite corners, choose any edge
+          availableEdges = [0, 1, 2, 3]; // Any edge
+        } else {
+          // Corners are at adjacent corners but not on same edge
+          // Identify the two edges that don't contain either corner
+          const usedEdges = new Set();
+
+          // Corner1 is on these edges
+          if (corner1Index === 0) usedEdges.add(0).add(3); // Top-left uses top and left edges
+          if (corner1Index === 1) usedEdges.add(0).add(1); // Top-right uses top and right edges
+          if (corner1Index === 2) usedEdges.add(1).add(2); // Bottom-right uses right and bottom edges
+          if (corner1Index === 3) usedEdges.add(2).add(3); // Bottom-left uses bottom and left edges
+
+          // Corner2 is on these edges
+          if (corner2Index === 0) usedEdges.add(0).add(3); // Top-left uses top and left edges
+          if (corner2Index === 1) usedEdges.add(0).add(1); // Top-right uses top and right edges
+          if (corner2Index === 2) usedEdges.add(1).add(2); // Bottom-right uses right and bottom edges
+          if (corner2Index === 3) usedEdges.add(2).add(3); // Bottom-left uses bottom and left edges
+
+          // Get available edges (the ones not containing either corner)
+          for (let i = 0; i < 4; i++) {
+            if (!usedEdges.has(i)) {
+              availableEdges.push(i);
+            }
+          }
+
+          // If no edges are available (shouldn't happen), use all edges
+          if (availableEdges.length === 0) {
+            availableEdges = [0, 1, 2, 3];
+          }
+        }
+
+        // Select a random edge from the available edges
+        const selectedEdge = availableEdges[Math.floor(Math.random() * availableEdges.length)];
+
+        // Get the midpoint of the selected edge
+        const midpoint = size / 2;
+        let point;
+
+        switch (selectedEdge) {
+          case 0: // Top edge midpoint
+            point = [midpoint, 0];
+            break;
+          case 1: // Right edge midpoint
+            point = [size, midpoint];
+            break;
+          case 2: // Bottom edge midpoint
+            point = [midpoint, size];
+            break;
+          case 3: // Left edge midpoint
+            point = [0, midpoint];
+            break;
+        }
+
+        return point;
+      }
+
+      // Initialize
+      window.addEventListener('resize', resizeCanvas);
+      resizeCanvas();
+
+      // Add visual indicator for refresh countdown
+      function addRefreshIndicator() {
+        const indicator = document.createElement('div');
+        indicator.style.position = 'fixed';
+        indicator.style.bottom = '10px';
+        indicator.style.right = '10px';
+        indicator.style.padding = '5px 10px';
+        indicator.style.backgroundColor = 'rgba(0,0,0,0.5)';
+        indicator.style.color = 'white';
+        indicator.style.borderRadius = '3px';
+        indicator.style.fontSize = '12px';
+        indicator.id = 'refreshIndicator';
+        document.body.appendChild(indicator);
+
+        // Update countdown every second
+        let countdown = 21;
+        indicator.textContent = `Refreshing in ${countdown}s`;
+
+        setInterval(() => {
+          countdown--;
+          if (countdown <= 0) {
+            countdown = 21;
+          }
+          indicator.textContent = `Refreshing in ${countdown}s`;
+        }, 1000);
+      }
+
+      addRefreshIndicator();
+    </script>
+  </body>
+</html>
