@@ -1,0 +1,22 @@
+{
+  "name": "struyckenator",
+  "version": "1.0.0",
+  "description": "Generative art inspired by Peter Struycken",
+  "main": "index.js",
+  "scripts": {
+    "start": "http-server public -p 3000",
+    "lint": "eslint public/*.js",
+    "test": "echo \"No tests specified\""
+  },
+  "keywords": [
+    "generative-art",
+    "canvas",
+    "javascript"
+  ],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "eslint": "^8.42.0",
+    "http-server": "^14.1.1"
+  }
+}
