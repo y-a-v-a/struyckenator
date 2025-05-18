@@ -1,0 +1,466 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Struycken Algorithm Image Processor</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1000px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+        }
+        .container {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+        .canvas-container {
+            display: flex;
+            justify-content: space-between;
+            gap: 20px;
+            flex-wrap: wrap;
+        }
+        canvas {
+            background-color: white;
+            border: 1px solid #ddd;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .controls {
+            background-color: white;
+            padding: 20px;
+            border-radius: 5px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .control-group {
+            margin-bottom: 15px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        button {
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            padding: 10px 15px;
+            text-align: center;
+            text-decoration: none;
+            display: inline-block;
+            font-size: 16px;
+            margin: 4px 2px;
+            cursor: pointer;
+            border-radius: 4px;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        button:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+        }
+        input[type="file"] {
+            margin-bottom: 10px;
+        }
+        .status {
+            margin-top: 10px;
+            font-style: italic;
+            color: #666;
+        }
+        .slider-value {
+            display: inline-block;
+            width: 30px;
+            text-align: right;
+        }
+        .processing-indicator {
+            margin-left: 10px;
+            color: #ff6600;
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <h1>Struycken Algorithm Image Processor</h1>
+    
+    <div class="container">
+        <div class="controls">
+            <div class="control-group">
+                <label for="imageUpload">Upload Image:</label>
+                <input type="file" id="imageUpload" accept="image/*">
+            </div>
+
+            <div class="control-group">
+                <label for="gridSize">Grid Size: <span id="gridSizeValue" class="slider-value">128</span></label>
+                <input type="range" id="gridSize" min="32" max="256" value="128" step="32">
+            </div>
+
+            <div class="control-group">
+                <label for="iterations">Iterations: <span id="iterationsValue" class="slider-value">20</span></label>
+                <input type="range" id="iterations" min="1" max="50" value="20">
+            </div>
+
+            <div class="control-group">
+                <label for="dotSize">Dot Size: <span id="dotSizeValue" class="slider-value">2</span></label>
+                <input type="range" id="dotSize" min="1" max="5" value="2" step="0.5">
+            </div>
+
+            <div class="control-group">
+                <button id="processBtn" disabled>Process Image</button>
+                <button id="resetBtn">Reset</button>
+                <span id="processingIndicator" class="processing-indicator">Processing...</span>
+            </div>
+
+            <div id="status" class="status">Upload an image to begin</div>
+        </div>
+
+        <div class="canvas-container">
+            <div>
+                <h3>Original Image</h3>
+                <canvas id="originalCanvas" width="400" height="400"></canvas>
+            </div>
+            <div>
+                <h3>Processed Image</h3>
+                <canvas id="processedCanvas" width="400" height="400"></canvas>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // DOM Elements
+        const imageUpload = document.getElementById('imageUpload');
+        const gridSizeSlider = document.getElementById('gridSize');
+        const gridSizeValue = document.getElementById('gridSizeValue');
+        const iterationsSlider = document.getElementById('iterations');
+        const iterationsValue = document.getElementById('iterationsValue');
+        const dotSizeSlider = document.getElementById('dotSize');
+        const dotSizeValue = document.getElementById('dotSizeValue');
+        const processBtn = document.getElementById('processBtn');
+        const resetBtn = document.getElementById('resetBtn');
+        const originalCanvas = document.getElementById('originalCanvas');
+        const processedCanvas = document.getElementById('processedCanvas');
+        const statusEl = document.getElementById('status');
+        const processingIndicator = document.getElementById('processingIndicator');
+
+        // Canvas contexts
+        const originalCtx = originalCanvas.getContext('2d');
+        const processedCtx = processedCanvas.getContext('2d');
+
+        // Global variables
+        let originalImage = null;
+        let points = [];
+        let imageData = null;
+        
+        // Update slider value displays
+        gridSizeSlider.addEventListener('input', () => {
+            gridSizeValue.textContent = gridSizeSlider.value;
+        });
+        
+        iterationsSlider.addEventListener('input', () => {
+            iterationsValue.textContent = iterationsSlider.value;
+        });
+        
+        dotSizeSlider.addEventListener('input', () => {
+            dotSizeValue.textContent = dotSizeSlider.value;
+        });
+
+        // Handle image upload
+        imageUpload.addEventListener('change', (event) => {
+            const file = event.target.files[0];
+            if (!file) return;
+            
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                originalImage = new Image();
+                originalImage.onload = () => {
+                    drawOriginalImage();
+                    processBtn.disabled = false;
+                    statusEl.textContent = 'Image loaded. Click "Process Image" to apply the Struycken algorithm.';
+                };
+                originalImage.src = e.target.result;
+            };
+            reader.readAsDataURL(file);
+        });
+
+        // Draw the original image on canvas
+        function drawOriginalImage() {
+            // Clear the canvas
+            originalCtx.clearRect(0, 0, originalCanvas.width, originalCanvas.height);
+            
+            // Calculate proportions to fit the image within canvas
+            const maxWidth = originalCanvas.width;
+            const maxHeight = originalCanvas.height;
+            let width = originalImage.width;
+            let height = originalImage.height;
+            
+            if (width > height) {
+                if (width > maxWidth) {
+                    height = height * (maxWidth / width);
+                    width = maxWidth;
+                }
+            } else {
+                if (height > maxHeight) {
+                    width = width * (maxHeight / height);
+                    height = maxHeight;
+                }
+            }
+            
+            // Center the image
+            const x = (maxWidth - width) / 2;
+            const y = (maxHeight - height) / 2;
+            
+            // Draw the image
+            originalCtx.drawImage(originalImage, x, y, width, height);
+        }
+
+        // Process button click handler
+        processBtn.addEventListener('click', async () => {
+            if (!originalImage) return;
+            
+            processingIndicator.style.display = 'inline';
+            processBtn.disabled = true;
+            statusEl.textContent = 'Processing...';
+            
+            // Allow UI to update before starting processing
+            await new Promise(resolve => setTimeout(resolve, 50));
+            
+            const gridSize = parseInt(gridSizeSlider.value);
+            const iterations = parseInt(iterationsSlider.value);
+            const dotSize = parseFloat(dotSizeSlider.value);
+            
+            processImage(gridSize, iterations, dotSize);
+        });
+
+        // Reset button click handler
+        resetBtn.addEventListener('click', () => {
+            originalCtx.clearRect(0, 0, originalCanvas.width, originalCanvas.height);
+            processedCtx.clearRect(0, 0, processedCanvas.width, processedCanvas.height);
+            imageUpload.value = '';
+            originalImage = null;
+            points = [];
+            processBtn.disabled = true;
+            statusEl.textContent = 'Upload an image to begin';
+        });
+
+        // Main image processing function
+        function processImage(gridSize, iterations, dotSize) {
+            // Step 1: Prepare a grayscale version of the image
+            const tempCanvas = document.createElement('canvas');
+            tempCanvas.width = gridSize;
+            tempCanvas.height = gridSize;
+            const tempCtx = tempCanvas.getContext('2d');
+            
+            // Draw and resize the image to fit the grid
+            const size = Math.min(originalCanvas.width, originalCanvas.height);
+            tempCtx.drawImage(
+                originalCanvas, 
+                (originalCanvas.width - size) / 2, 
+                (originalCanvas.height - size) / 2, 
+                size, size, 
+                0, 0, gridSize, gridSize
+            );
+            
+            // Get image data
+            imageData = tempCtx.getImageData(0, 0, gridSize, gridSize);
+            
+            // Step 2: Apply the Struycken algorithm
+            points = determinePointPlacement(imageData, gridSize);
+            
+            // Step 3: Randomize point positions
+            for (let i = 0; i < iterations; i++) {
+                randomizePointPositions(points, gridSize);
+                
+                // Update status for long operations
+                if (i % 5 === 0 || i === iterations - 1) {
+                    statusEl.textContent = `Processing... Iteration ${i + 1}/${iterations}`;
+                }
+            }
+            
+            // Step 4: Draw the result
+            drawProcessedImage(points, dotSize);
+            
+            processingIndicator.style.display = 'none';
+            processBtn.disabled = false;
+            statusEl.textContent = 'Processing complete!';
+        }
+
+        // Determine initial point placement (first phase of the algorithm)
+        function determinePointPlacement(imageData, gridSize) {
+            const points = [];
+            const data = imageData.data;
+            let sum = 0;
+            
+            // Scan the image in a meandering pattern
+            for (let y = 0; y < gridSize; y++) {
+                // Determine scan direction (left-to-right or right-to-left)
+                const leftToRight = y % 2 === 0;
+                
+                for (let x = 0; x < gridSize; x++) {
+                    // Adjust x-coordinate for the current scan direction
+                    const xPos = leftToRight ? x : gridSize - 1 - x;
+                    
+                    // Calculate the pixel index
+                    const idx = (y * gridSize + xPos) * 4;
+                    
+                    // Calculate grayscale value (average of RGB)
+                    const gray = Math.floor((data[idx] + data[idx + 1] + data[idx + 2]) / 3);
+                    
+                    // Invert grayscale (0=white, 255=black)
+                    const invertedGray = 255 - gray;
+                    
+                    // Add to sum
+                    sum += invertedGray;
+                    
+                    // If sum exceeds 255, place a point
+                    if (sum >= 255) {
+                        points.push({ x: xPos, y: y });
+                        sum -= 255;
+                    }
+                }
+            }
+            
+            return points;
+        }
+
+        // Randomize point positions (second phase of the algorithm)
+        function randomizePointPositions(points, gridSize) {
+            const territoryRadius = 1.0; // Reduced radius for each point's territory
+            const maxMove = 3; // Maximum distance a point can move
+            
+            // Create a spatial hash grid to speed up nearby point checks
+            const cellSize = territoryRadius * 2;
+            const gridCells = Math.ceil(gridSize / cellSize);
+            const spatialGrid = Array(gridCells).fill().map(() => Array(gridCells).fill().map(() => []));
+            
+            // Add all points to the spatial grid
+            points.forEach((point, index) => {
+                const cellX = Math.floor(point.x / cellSize);
+                const cellY = Math.floor(point.y / cellSize);
+                if (cellX >= 0 && cellX < gridCells && cellY >= 0 && cellY < gridCells) {
+                    spatialGrid[cellY][cellX].push(index);
+                }
+            });
+            
+            // Process each point with a random order
+            const indices = Array.from({ length: points.length }, (_, i) => i);
+            shuffleArray(indices);
+            
+            for (const i of indices) {
+                const point = points[i];
+                
+                // Try multiple random moves for each point (increasing chances of finding valid move)
+                let foundValidMove = false;
+                for (let attempts = 0; attempts < 5 && !foundValidMove; attempts++) {
+                    // Generate random movement vector with magnitude between 1 and maxMove
+                    const angle = Math.random() * Math.PI * 2;
+                    const magnitude = 1 + Math.random() * (maxMove - 1);
+                    const dx = Math.round(Math.cos(angle) * magnitude);
+                    const dy = Math.round(Math.sin(angle) * magnitude);
+                    
+                    // Calculate new position
+                    const newX = point.x + dx;
+                    const newY = point.y + dy;
+                    
+                    // Check if new position is within grid bounds
+                    if (newX < 0 || newX >= gridSize || newY < 0 || newY >= gridSize) {
+                        continue; // Skip if out of bounds
+                    }
+                    
+                    // Check if new position overlaps with nearby points' territories
+                    let canMove = true;
+                    
+                    // Only check nearby cells in the spatial grid
+                    const cellX = Math.floor(newX / cellSize);
+                    const cellY = Math.floor(newY / cellSize);
+                    
+                    for (let ny = Math.max(0, cellY - 1); ny <= Math.min(gridCells - 1, cellY + 1); ny++) {
+                        for (let nx = Math.max(0, cellX - 1); nx <= Math.min(gridCells - 1, cellX + 1); nx++) {
+                            for (const j of spatialGrid[ny][nx]) {
+                                if (i === j) continue; // Skip self
+                                
+                                const otherPoint = points[j];
+                                const distance = Math.sqrt(
+                                    Math.pow(newX - otherPoint.x, 2) + 
+                                    Math.pow(newY - otherPoint.y, 2)
+                                );
+                                
+                                if (distance < territoryRadius * 2) {
+                                    canMove = false;
+                                    break;
+                                }
+                            }
+                            if (!canMove) break;
+                        }
+                        if (!canMove) break;
+                    }
+                    
+                    // Update position if allowed
+                    if (canMove) {
+                        // Update spatial grid
+                        const oldCellX = Math.floor(point.x / cellSize);
+                        const oldCellY = Math.floor(point.y / cellSize);
+                        
+                        if (oldCellX >= 0 && oldCellX < gridCells && oldCellY >= 0 && oldCellY < gridCells) {
+                            const cellPoints = spatialGrid[oldCellY][oldCellX];
+                            spatialGrid[oldCellY][oldCellX] = cellPoints.filter(idx => idx !== i);
+                        }
+                        
+                        // Update point position
+                        point.x = newX;
+                        point.y = newY;
+                        
+                        // Add to new cell
+                        if (cellX >= 0 && cellX < gridCells && cellY >= 0 && cellY < gridCells) {
+                            spatialGrid[cellY][cellX].push(i);
+                        }
+                        
+                        foundValidMove = true;
+                    }
+                }
+            }
+        }
+        
+        // Helper function to shuffle array in-place (Fisher-Yates algorithm)
+        function shuffleArray(array) {
+            for (let i = array.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [array[i], array[j]] = [array[j], array[i]];
+            }
+            return array;
+        }
+
+        // Draw the processed image with points
+        function drawProcessedImage(points, dotSize) {
+            // Clear canvas
+            processedCtx.clearRect(0, 0, processedCanvas.width, processedCanvas.height);
+            processedCtx.fillStyle = 'white';
+            processedCtx.fillRect(0, 0, processedCanvas.width, processedCanvas.height);
+            
+            // Calculate scaling factor
+            const gridSize = parseInt(gridSizeSlider.value);
+            const scale = processedCanvas.width / gridSize;
+            
+            // Draw points
+            processedCtx.fillStyle = 'black';
+            
+            points.forEach(point => {
+                processedCtx.beginPath();
+                processedCtx.arc(
+                    point.x * scale, 
+                    point.y * scale, 
+                    dotSize, 
+                    0, 
+                    Math.PI * 2
+                );
+                processedCtx.fill();
+            });
+        }
+    </script>
+</body>
+</html>
