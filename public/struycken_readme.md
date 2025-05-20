@@ -4,7 +4,7 @@
 
 This project implements the Struycken algorithm, a unique image processing technique developed by Dutch artist Peter Struycken for digitizing grayscale images into point patterns. The algorithm was originally created for designing a postage stamp featuring the Dutch Queen, transforming a traditional portrait into a distinctive pattern of points that avoided conventional printing raster patterns.
 
-![Struycken Algorithm Example](https://kalden.home.xs4all.nl/stru/stempel.gif)
+![Struycken Algorithm Example](https://kalden.home.xs4all.nl/stru/struycken-nl.htm)
 
 ## Historical Background
 

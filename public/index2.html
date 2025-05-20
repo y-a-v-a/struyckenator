@@ -20,13 +20,13 @@
             display: flex;
             flex-direction: column;
             gap: 20px;
+            margin-top: 20px;
         }
         .canvas-container {
             display: flex;
             justify-content: space-between;
             gap: 20px;
             flex-wrap: wrap;
-            margin-top: 20px;
         }
         canvas {
             background-color: white;
@@ -178,10 +178,33 @@
             padding: 6px 10px;
             margin: 0;
         }
+        .color-picker-container {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+        .color-picker-container input[type="color"] {
+            width: 40px;
+            height: 30px;
+            padding: 0;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            cursor: pointer;
+        }
     </style>
 </head>
 <body>
     <h1>Struycken Algorithm Image Processor</h1>
+    <div class="canvas-container">
+        <div>
+            <h3>Original Image</h3>
+            <canvas id="originalCanvas"></canvas>
+        </div>
+        <div>
+            <h3>Processed Image</h3>
+            <canvas id="processedCanvas"></canvas>
+        </div>
+    </div>
     
     <div class="container">
         <div class="controls">
@@ -208,6 +231,13 @@
             <div class="control-group">
                 <label for="dotSize">Dot Size: <span id="dotSizeValue" class="slider-value">2</span></label>
                 <input type="range" id="dotSize" min="1" max="5" value="2" step="0.5">
+            </div>
+            <div class="control-group">
+                <label for="dotColor">Dot Color</label>
+                <div class="color-picker-container">
+                    <input type="color" id="dotColor" value="#000000">
+                    <span>Background will adjust automatically</span>
+                </div>
             </div>
             <div class="control-group" style="grid-column: 1 / -1;">
                 <div class="tonal-range">
@@ -236,24 +266,32 @@
                 <label for="brightness">Brightness: <span id="brightnessValue" class="slider-value">0</span></label>
                 <input type="range" id="brightness" min="-100" max="100" value="0" step="1">
             </div>
-            <div class="control-group" style="grid-column: 1 / -1;">
+            <div class="control-group">
                 <button id="processBtn" disabled>Process Image</button>
                 <button id="resetBtn">Reset</button>
                 <span id="processingIndicator" class="processing-indicator">Processing...</span>
             </div>
-            <div class="control-group" style="grid-column: 1 / -1;">
+            <div class="control-group">
                 <div id="status" class="status">Upload an image to begin</div>
             </div>
         </div>
+        
+    </div>
 
-        <div class="canvas-container">
-            <div>
-                <h3>Original Image</h3>
-                <canvas id="originalCanvas"></canvas>
+    <div class="container">
+        <div class="controls" style="grid-column: 1 / -1;">
+            <h3>Interaction Instructions</h3>
+            <div style="margin-bottom: 15px;">
+                <strong>Pan:</strong> Click and drag on the original image to pan and explore different areas.
+            </div>
+            <div style="margin-bottom: 15px;">
+                <strong>Zoom:</strong> Hold down Cmd (Mac) or Ctrl (Windows) while using the scroll wheel over the original image.
+            </div>
+            <div style="margin-bottom: 15px;">
+                <strong>Reset View:</strong> Uploading a new image or clicking Reset will restore the default view.
             </div>
             <div>
-                <h3>Processed Image</h3>
-                <canvas id="processedCanvas"></canvas>
+                <strong>Presets:</strong> Save your favorite settings with the preset system above. Presets include all slider values and colors.
             </div>
         </div>
     </div>
@@ -279,6 +317,7 @@
         const processingIndicator = document.getElementById('processingIndicator');
         const presetSelect = document.getElementById('presetSelect');
         const savePresetBtn = document.getElementById('savePresetBtn');
+        const dotColorInput = document.getElementById('dotColor');
 
         // Canvas contexts
         const originalCtx = originalCanvas.getContext('2d');
@@ -295,6 +334,8 @@
         };
         let currentRange = 'shadows';
         let presets = {};
+        let dotColor = '#000000';
+        let bgColor = '#f0f0f0';
         
         // Pan and zoom variables
         let isPanning = false;
@@ -711,7 +752,7 @@
 
         // Randomize point positions (second phase of the algorithm)
         function randomizePointPositions(points, gridSize) {
-            const territoryRadius = 1.0; // Reduced radius for each point's territory
+            const territoryRadius = 1.4; // Reduced radius for each point's territory
             const maxMove = 3; // Maximum distance a point can move
             
             // Create a spatial hash grid to speed up nearby point checks
@@ -820,7 +861,7 @@
         function drawProcessedImage(points, dotSize) {
             // Clear canvas
             processedCtx.clearRect(0, 0, processedCanvas.width, processedCanvas.height);
-            processedCtx.fillStyle = 'white';
+            processedCtx.fillStyle = bgColor;
             processedCtx.fillRect(0, 0, processedCanvas.width, processedCanvas.height);
             
             // Calculate scaling factor
@@ -828,7 +869,7 @@
             const scale = processedCanvas.width / gridSize;
             
             // Draw points
-            processedCtx.fillStyle = 'black';
+            processedCtx.fillStyle = dotColor;
             
             points.forEach(point => {
                 processedCtx.beginPath();
@@ -872,7 +913,8 @@
                 adjustments: JSON.parse(JSON.stringify(adjustments)),
                 gridSize: parseInt(gridSizeSlider.value),
                 iterations: parseInt(iterationsSlider.value),
-                dotSize: parseFloat(dotSizeSlider.value)
+                dotSize: parseFloat(dotSizeSlider.value),
+                dotColor: dotColorInput.value
             };
         }
         
@@ -890,6 +932,12 @@
             
             dotSizeSlider.value = preset.dotSize;
             dotSizeValue.textContent = preset.dotSize;
+            
+            // Update color if present in the preset
+            if (preset.dotColor) {
+                dotColorInput.value = preset.dotColor;
+                updateColors();
+            }
             
             // Set contrast and brightness for current tonal range
             brightnessSlider.value = adjustments[currentRange].brightness;
@@ -958,6 +1006,50 @@
         
         // Load presets on page load
         loadPresets();
+
+        // Convert hex color to RGB
+        function hexToRgb(hex) {
+            // Remove # if present
+            hex = hex.replace('#', '');
+            
+            // Convert to RGB values
+            const r = parseInt(hex.substring(0, 2), 16);
+            const g = parseInt(hex.substring(2, 4), 16);
+            const b = parseInt(hex.substring(4, 6), 16);
+            
+            return { r, g, b };
+        }
+        
+        // Calculate light background color from dot color
+        function calculateLightBgColor(hexColor) {
+            const rgb = hexToRgb(hexColor);
+            
+            // Mix with white at 95% white, 5% original color
+            const r = Math.round(rgb.r * 0.05 + 255 * 0.95);
+            const g = Math.round(rgb.g * 0.05 + 255 * 0.95);
+            const b = Math.round(rgb.b * 0.05 + 255 * 0.95);
+            
+            // Ensure values are at least 240
+            const finalR = Math.max(240, r);
+            const finalG = Math.max(240, g);
+            const finalB = Math.max(240, b);
+            
+            return `rgb(${finalR}, ${finalG}, ${finalB})`;
+        }
+        
+        // Update colors when dot color changes
+        function updateColors() {
+            dotColor = dotColorInput.value;
+            bgColor = calculateLightBgColor(dotColor);
+            
+            // Redraw if there are points
+            if (points.length > 0) {
+                drawProcessedImage(points, parseFloat(dotSizeSlider.value));
+            }
+        }
+        
+        // Listen for color changes
+        dotColorInput.addEventListener('input', updateColors);
     </script>
 </body>
 </html>
