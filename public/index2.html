@@ -26,20 +26,60 @@
             justify-content: space-between;
             gap: 20px;
             flex-wrap: wrap;
+            margin-top: 20px;
         }
         canvas {
             background-color: white;
             border: 1px solid #ddd;
             box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            width: 100%;
+            height: auto;
+            max-width: 450px;
+            aspect-ratio: 1 / 1;
         }
         .controls {
             background-color: white;
             padding: 20px;
             border-radius: 5px;
             box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px 30px;
+        }
+        @media (max-width: 700px) {
+            .controls {
+                grid-template-columns: 1fr;
+            }
+            .canvas-container {
+                flex-direction: column;
+                align-items: center;
+            }
+            .canvas-container > div {
+                width: 100%;
+            }
+        }
+        @media (min-width: 701px) and (max-width: 1000px) {
+            canvas {
+                width: 100%;
+                max-width: none;
+                min-width: 300px;
+            }
+            .canvas-container {
+                justify-content: center;
+                gap: 4%;
+            }
+            .canvas-container > div {
+                width: 48%;
+            }
+        }
+        @media (min-width: 1001px) {
+            .canvas-container > div {
+                width: 450px;
+            }
         }
         .control-group {
             margin-bottom: 15px;
+            width: 100%;
         }
         label {
             display: block;
@@ -84,6 +124,34 @@
             color: #ff6600;
             display: none;
         }
+        .tonal-range {
+            display: flex;
+            gap: 15px;
+            margin-bottom: 10px;
+            align-items: center;
+            flex-direction: row;
+        }
+        @media (max-width: 700px) {
+            .tonal-range {
+                flex-direction: column;
+                align-items: flex-start;
+            }
+        }
+        .tonal-range label {
+            display: inline-flex;
+            align-items: center;
+            margin: 0;
+            cursor: pointer;
+        }
+        .tonal-values {
+            font-size: 11px;
+            color: #666;
+            margin-left: 5px;
+        }
+        .active-range {
+            font-weight: bold;
+            color: #4CAF50;
+        }
     </style>
 </head>
 <body>
@@ -95,49 +163,63 @@
                 <label for="imageUpload">Upload Image:</label>
                 <input type="file" id="imageUpload" accept="image/*">
             </div>
-
             <div class="control-group">
                 <label for="gridSize">Grid Size: <span id="gridSizeValue" class="slider-value">128</span></label>
                 <input type="range" id="gridSize" min="32" max="256" value="128" step="32">
             </div>
-
             <div class="control-group">
                 <label for="iterations">Iterations: <span id="iterationsValue" class="slider-value">20</span></label>
                 <input type="range" id="iterations" min="1" max="50" value="20">
             </div>
-
             <div class="control-group">
                 <label for="dotSize">Dot Size: <span id="dotSizeValue" class="slider-value">2</span></label>
                 <input type="range" id="dotSize" min="1" max="5" value="2" step="0.5">
             </div>
-
+            <div class="control-group" style="grid-column: 1 / -1;">
+                <div class="tonal-range">
+                    <label>
+                        <input type="radio" name="tonal-range" value="shadows" checked>
+                        Shadows
+                        <span class="tonal-values" id="shadows-values">(B: 0, C: 1.00)</span>
+                    </label>
+                    <label>
+                        <input type="radio" name="tonal-range" value="midtones">
+                        Midtones
+                        <span class="tonal-values" id="midtones-values">(B: 0, C: 1.00)</span>
+                    </label>
+                    <label>
+                        <input type="radio" name="tonal-range" value="highlights">
+                        Highlights
+                        <span class="tonal-values" id="highlights-values">(B: 0, C: 1.00)</span>
+                    </label>
+                </div>
+            </div>
             <div class="control-group">
                 <label for="contrast">Contrast: <span id="contrastValue" class="slider-value">1.00</span></label>
-                <input type="range" id="contrast" min="0.1" max="2" value="1" step="0.05">
+                <input type="range" id="contrast" min="0.0" max="2" value="1" step="0.05">
             </div>
-
             <div class="control-group">
                 <label for="brightness">Brightness: <span id="brightnessValue" class="slider-value">0</span></label>
                 <input type="range" id="brightness" min="-100" max="100" value="0" step="1">
             </div>
-
-            <div class="control-group">
+            <div class="control-group" style="grid-column: 1 / -1;">
                 <button id="processBtn" disabled>Process Image</button>
                 <button id="resetBtn">Reset</button>
                 <span id="processingIndicator" class="processing-indicator">Processing...</span>
             </div>
-
-            <div id="status" class="status">Upload an image to begin</div>
+            <div class="control-group" style="grid-column: 1 / -1;">
+                <div id="status" class="status">Upload an image to begin</div>
+            </div>
         </div>
 
         <div class="canvas-container">
             <div>
                 <h3>Original Image</h3>
-                <canvas id="originalCanvas" width="400" height="400"></canvas>
+                <canvas id="originalCanvas"></canvas>
             </div>
             <div>
                 <h3>Processed Image</h3>
-                <canvas id="processedCanvas" width="400" height="400"></canvas>
+                <canvas id="processedCanvas"></canvas>
             </div>
         </div>
     </div>
@@ -170,7 +252,40 @@
         let originalImage = null;
         let points = [];
         let imageData = null;
+        let adjustments = {
+            shadows: { brightness: 0, contrast: 1 },
+            midtones: { brightness: 0, contrast: 1 },
+            highlights: { brightness: 0, contrast: 1 }
+        };
+        let currentRange = 'shadows';
         
+        // Function to update canvas internal dimensions to match displayed size
+        function updateCanvasDimensions() {
+            // Get the computed style
+            const originalRect = originalCanvas.getBoundingClientRect();
+            const processedRect = processedCanvas.getBoundingClientRect();
+            
+            // Set the canvas internal dimensions to match displayed size
+            originalCanvas.width = Math.round(originalRect.width);
+            originalCanvas.height = Math.round(originalRect.height);
+            processedCanvas.width = Math.round(processedRect.width);
+            processedCanvas.height = Math.round(processedRect.height);
+        }
+        
+        // Call once on page load
+        updateCanvasDimensions();
+        
+        // Update canvas dimensions on window resize
+        window.addEventListener('resize', () => {
+            updateCanvasDimensions();
+            if (originalImage) {
+                drawOriginalImage();
+            }
+            if (points.length > 0) {
+                drawProcessedImage(points, parseFloat(dotSizeSlider.value));
+            }
+        });
+
         // Update slider value displays
         gridSizeSlider.addEventListener('input', () => {
             gridSizeValue.textContent = gridSizeSlider.value;
@@ -184,8 +299,38 @@
             dotSizeValue.textContent = dotSizeSlider.value;
         });
 
+        // Add function to update tonal values display
+        function updateTonalValues() {
+            Object.keys(adjustments).forEach(range => {
+                const values = adjustments[range];
+                document.getElementById(`${range}-values`).textContent = 
+                    `(B: ${values.brightness}, C: ${values.contrast.toFixed(2)})`;
+            });
+        }
+
+        // Add radio button event listeners
+        document.querySelectorAll('input[name="tonal-range"]').forEach(radio => {
+            radio.addEventListener('change', (e) => {
+                currentRange = e.target.value;
+                // Update sliders to show current range's values
+                brightnessSlider.value = adjustments[currentRange].brightness;
+                contrastSlider.value = adjustments[currentRange].contrast;
+                brightnessValue.textContent = adjustments[currentRange].brightness;
+                contrastValue.textContent = adjustments[currentRange].contrast.toFixed(2);
+                
+                // Update active range styling
+                document.querySelectorAll('.tonal-values').forEach(el => {
+                    el.classList.remove('active-range');
+                });
+                document.getElementById(`${currentRange}-values`).classList.add('active-range');
+            });
+        });
+
+        // Modify slider event listeners
         contrastSlider.addEventListener('input', () => {
             contrastValue.textContent = parseFloat(contrastSlider.value).toFixed(2);
+            adjustments[currentRange].contrast = parseFloat(contrastSlider.value);
+            updateTonalValues();
             if (originalImage) {
                 drawOriginalImage();
             }
@@ -193,6 +338,8 @@
 
         brightnessSlider.addEventListener('input', () => {
             brightnessValue.textContent = brightnessSlider.value;
+            adjustments[currentRange].brightness = parseInt(brightnessSlider.value);
+            updateTonalValues();
             if (originalImage) {
                 drawOriginalImage();
             }
@@ -207,6 +354,7 @@
             reader.onload = (e) => {
                 originalImage = new Image();
                 originalImage.onload = () => {
+                    updateCanvasDimensions(); // Ensure canvas dimensions are up to date
                     drawOriginalImage();
                     processBtn.disabled = false;
                     statusEl.textContent = 'Image loaded. Click "Process Image" to apply the Struycken algorithm.';
@@ -256,20 +404,28 @@
             const imageData = tempCtx.getImageData(0, 0, width, height);
             const data = imageData.data;
             
-            // Get adjustment values
-            const contrast = parseFloat(contrastSlider.value);
-            const brightness = parseInt(brightnessSlider.value);
-            const factor = (259 * (contrast * 255 + 255)) / (255 * (259 - contrast * 255));
-            
+            // Process each pixel
             for (let i = 0; i < data.length; i += 4) {
                 // Convert to grayscale
                 const gray = (data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114);
                 
-                // Apply brightness adjustment
-                let adjusted = gray + brightness;
-                
-                // Apply contrast adjustment
-                adjusted = factor * (adjusted - 128) + 128;
+                // Determine which adjustment to use based on luminance
+                let adjusted;
+                if (gray <= 85) { // Shadows
+                    adjusted = applyAdjustments(gray, adjustments.shadows);
+                } else if (gray <= 170) { // Midtones
+                    const shadowWeight = (170 - gray) / 85;
+                    const highlightWeight = (gray - 85) / 85;
+                    const shadowAdjusted = applyAdjustments(gray, adjustments.shadows);
+                    const midAdjusted = applyAdjustments(gray, adjustments.midtones);
+                    adjusted = shadowAdjusted * shadowWeight + midAdjusted * highlightWeight;
+                } else { // Highlights
+                    const midWeight = (255 - gray) / 85;
+                    const highlightWeight = (gray - 170) / 85;
+                    const midAdjusted = applyAdjustments(gray, adjustments.midtones);
+                    const highlightAdjusted = applyAdjustments(gray, adjustments.highlights);
+                    adjusted = midAdjusted * midWeight + highlightAdjusted * highlightWeight;
+                }
                 
                 // Clamp values
                 const final = Math.max(0, Math.min(255, adjusted));
@@ -277,7 +433,6 @@
                 data[i] = final;     // R
                 data[i + 1] = final; // G
                 data[i + 2] = final; // B
-                // Alpha channel (data[i + 3]) remains unchanged
             }
             
             // Put the processed image data back
@@ -285,6 +440,17 @@
             
             // Draw the processed image to the original canvas
             originalCtx.drawImage(tempCanvas, x, y, width, height);
+        }
+
+        function applyAdjustments(value, adjustments) {
+            // Apply brightness
+            let adjusted = value + adjustments.brightness;
+            
+            // Apply contrast
+            const factor = (259 * (adjustments.contrast * 255 + 255)) / (255 * (259 - adjustments.contrast * 255));
+            adjusted = factor * (adjusted - 128) + 128;
+            
+            return adjusted;
         }
 
         // Process button click handler
@@ -307,6 +473,7 @@
 
         // Reset button click handler
         resetBtn.addEventListener('click', () => {
+            updateCanvasDimensions(); // Ensure canvas dimensions are up to date
             originalCtx.clearRect(0, 0, originalCanvas.width, originalCanvas.height);
             processedCtx.clearRect(0, 0, processedCanvas.width, processedCanvas.height);
             imageUpload.value = '';
