@@ -112,6 +112,16 @@
             </div>
 
             <div class="control-group">
+                <label for="contrast">Contrast: <span id="contrastValue" class="slider-value">1.00</span></label>
+                <input type="range" id="contrast" min="0.1" max="2" value="1" step="0.05">
+            </div>
+
+            <div class="control-group">
+                <label for="brightness">Brightness: <span id="brightnessValue" class="slider-value">0</span></label>
+                <input type="range" id="brightness" min="-100" max="100" value="0" step="1">
+            </div>
+
+            <div class="control-group">
                 <button id="processBtn" disabled>Process Image</button>
                 <button id="resetBtn">Reset</button>
                 <span id="processingIndicator" class="processing-indicator">Processing...</span>
@@ -141,6 +151,10 @@
         const iterationsValue = document.getElementById('iterationsValue');
         const dotSizeSlider = document.getElementById('dotSize');
         const dotSizeValue = document.getElementById('dotSizeValue');
+        const contrastSlider = document.getElementById('contrast');
+        const contrastValue = document.getElementById('contrastValue');
+        const brightnessSlider = document.getElementById('brightness');
+        const brightnessValue = document.getElementById('brightnessValue');
         const processBtn = document.getElementById('processBtn');
         const resetBtn = document.getElementById('resetBtn');
         const originalCanvas = document.getElementById('originalCanvas');
@@ -168,6 +182,20 @@
         
         dotSizeSlider.addEventListener('input', () => {
             dotSizeValue.textContent = dotSizeSlider.value;
+        });
+
+        contrastSlider.addEventListener('input', () => {
+            contrastValue.textContent = parseFloat(contrastSlider.value).toFixed(2);
+            if (originalImage) {
+                drawOriginalImage();
+            }
+        });
+
+        brightnessSlider.addEventListener('input', () => {
+            brightnessValue.textContent = brightnessSlider.value;
+            if (originalImage) {
+                drawOriginalImage();
+            }
         });
 
         // Handle image upload
@@ -215,8 +243,48 @@
             const x = (maxWidth - width) / 2;
             const y = (maxHeight - height) / 2;
             
-            // Draw the image
-            originalCtx.drawImage(originalImage, x, y, width, height);
+            // Create a temporary canvas for grayscale conversion and adjustments
+            const tempCanvas = document.createElement('canvas');
+            tempCanvas.width = width;
+            tempCanvas.height = height;
+            const tempCtx = tempCanvas.getContext('2d');
+            
+            // Draw the original image to temp canvas
+            tempCtx.drawImage(originalImage, 0, 0, width, height);
+            
+            // Get image data for processing
+            const imageData = tempCtx.getImageData(0, 0, width, height);
+            const data = imageData.data;
+            
+            // Get adjustment values
+            const contrast = parseFloat(contrastSlider.value);
+            const brightness = parseInt(brightnessSlider.value);
+            const factor = (259 * (contrast * 255 + 255)) / (255 * (259 - contrast * 255));
+            
+            for (let i = 0; i < data.length; i += 4) {
+                // Convert to grayscale
+                const gray = (data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114);
+                
+                // Apply brightness adjustment
+                let adjusted = gray + brightness;
+                
+                // Apply contrast adjustment
+                adjusted = factor * (adjusted - 128) + 128;
+                
+                // Clamp values
+                const final = Math.max(0, Math.min(255, adjusted));
+                
+                data[i] = final;     // R
+                data[i + 1] = final; // G
+                data[i + 2] = final; // B
+                // Alpha channel (data[i + 3]) remains unchanged
+            }
+            
+            // Put the processed image data back
+            tempCtx.putImageData(imageData, 0, 0);
+            
+            // Draw the processed image to the original canvas
+            originalCtx.drawImage(tempCanvas, x, y, width, height);
         }
 
         // Process button click handler
