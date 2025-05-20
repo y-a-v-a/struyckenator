@@ -4,7 +4,7 @@
 
 This project implements the Struycken algorithm, a unique image processing technique developed by Dutch artist Peter Struycken for digitizing grayscale images into point patterns. The algorithm was originally created for designing a postage stamp featuring the Dutch Queen, transforming a traditional portrait into a distinctive pattern of points that avoided conventional printing raster patterns.
 
-![Struycken Algorithm Example](https://kalden.home.xs4all.nl/stru/struycken-nl.htm)
+![Struycken Algorithm Example](https://kalden.home.xs4all.nl/stru/images/Bea-St1.jpg)
 
 ## Historical Background
 
@@ -52,22 +52,35 @@ The algorithm is analogous to placing marbles in a grid pattern in a flat box, t
 
 Our web-based implementation extends the original algorithm with several modern features:
 
-- **Interactive Controls**:
+- **Core Algorithm Controls**:
   - Adjustable grid size (32×32 to 256×256)
   - Variable number of iterations (1-50)
-  - Customizable dot size for the rendering
-  - One-click processing and reset
+  - Customizable dot size (1-5px in 0.25px increments)
+  - Adjustable territory radius (0.1-1.5) for point distribution
   
-- **Visual Feedback**:
+- **Advanced Image Manipulation**:
+  - Automatic grayscale conversion
+  - Three-zone tonal controls (shadows, midtones, highlights)
+  - Independent brightness and contrast adjustments for each tonal range
+  - Real-time preview of adjustments
+  
+- **Visualization Options**:
+  - Customizable dot color with color picker
+  - Automatic complementary background color generation
   - Side-by-side display of original and processed images
-  - Processing status indicators
-  - Real-time parameter adjustment
+  
+- **Interactive Features**:
+  - Pan and zoom capability for detailed inspection
+  - Preset system for saving and loading configurations
+  - Processing status indicators and instructions
+  - Responsive design for various screen sizes
 
 - **Technical Improvements**:
   - Spatial hashing for efficient collision detection
   - Vector-based randomization for more natural point distribution
   - Multiple movement attempts per point per iteration
   - Randomized processing order to avoid pattern bias
+  - Local storage integration for saving preferences
 
 ## Technical Implementation Details
 
@@ -122,10 +135,11 @@ Our enhanced randomization algorithm uses:
 2. **Vector-Based Movement**: Uses angle and magnitude for more natural randomization
 3. **Multiple Attempts**: Tries several possible movements for each point
 4. **Randomized Processing Order**: Processes points in a different random order each iteration
+5. **Configurable Territory**: Adjustable territory radius to control point distribution density
 
 ```javascript
 function randomizePointPositions(points, gridSize) {
-    const territoryRadius = 1.0;
+    const territoryRadius = parseFloat(territoryRadiusSlider.value);
     const maxMove = 3;
     
     // Create a spatial hash grid to speed up nearby point checks
@@ -152,9 +166,9 @@ function randomizePointPositions(points, gridSize) {
         // Try multiple random moves for each point
         let foundValidMove = false;
         for (let attempts = 0; attempts < 5 && !foundValidMove; attempts++) {
-            // Generate random movement vector with magnitude between 1 and maxMove
+            // Generate random movement vector
             const angle = Math.random() * Math.PI * 2;
-            const magnitude = 1 + Math.random() * (maxMove - 1);
+            const magnitude = Math.random() * maxMove;
             const dx = Math.round(Math.cos(angle) * magnitude);
             const dy = Math.round(Math.sin(angle) * magnitude);
             
@@ -168,6 +182,69 @@ function randomizePointPositions(points, gridSize) {
     }
 }
 ```
+
+### Advanced Tonal Control
+
+Our implementation includes sophisticated tonal control with separate adjustments for shadows, midtones, and highlights:
+
+```javascript
+function drawOriginalImage() {
+    // ... setup code ...
+    
+    // Process each pixel
+    for (let i = 0; i < data.length; i += 4) {
+        // Convert to grayscale
+        const gray = (data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114);
+        
+        // Determine which adjustment to use based on luminance
+        let adjusted;
+        if (gray <= 85) { // Shadows
+            adjusted = applyAdjustments(gray, adjustments.shadows);
+        } else if (gray <= 170) { // Midtones
+            const shadowWeight = (170 - gray) / 85;
+            const highlightWeight = (gray - 85) / 85;
+            const shadowAdjusted = applyAdjustments(gray, adjustments.shadows);
+            const midAdjusted = applyAdjustments(gray, adjustments.midtones);
+            adjusted = shadowAdjusted * shadowWeight + midAdjusted * highlightWeight;
+        } else { // Highlights
+            const midWeight = (255 - gray) / 85;
+            const highlightWeight = (gray - 170) / 85;
+            const midAdjusted = applyAdjustments(gray, adjustments.midtones);
+            const highlightAdjusted = applyAdjustments(gray, adjustments.highlights);
+            adjusted = midAdjusted * midWeight + highlightAdjusted * highlightWeight;
+        }
+        
+        // ... apply to image ...
+    }
+}
+```
+
+## Interactive Features
+
+### Pan and Zoom
+
+The application includes interactive pan and zoom functionality for detailed image exploration:
+
+- **Pan**: Click and drag directly on the original image to move it around
+- **Zoom**: Hold Cmd (Mac) or Ctrl (Windows) while using the mouse wheel
+- **Reset View**: Automatically resets when loading a new image or clicking Reset
+
+### Preset System
+
+A comprehensive preset system allows saving and loading of configurations:
+
+- Save current settings including all slider positions and color choices
+- Load presets to instantly recall favorite settings
+- Remove unwanted presets with a single click
+- Presets are stored in the browser's local storage for persistence
+
+### Color Customization
+
+The processed image can be visually customized:
+
+- Choose any color for dots using a color picker
+- Background color is automatically generated as a lighter complementary shade
+- Real-time updates as colors are selected
 
 ## Visual Impact and Applications
 
@@ -188,12 +265,14 @@ Beyond its original application for postage stamps, this technique has potential
 
 ## Running the Application
 
-1. Download the HTML file
-2. Open it in any modern web browser
-3. Upload an image using the "Upload Image" button
-4. Adjust the parameters as desired
-5. Click "Process Image" to apply the algorithm
-6. Use "Reset" to clear the canvases and start over
+1. Open the application in any modern web browser
+2. Upload an image using the "Upload Image" button
+3. Adjust image tone using the shadows, midtones, and highlights controls
+4. Fine-tune the algorithm parameters (grid size, iterations, dot size, territory radius)
+5. Customize the visual appearance with the color picker
+6. Click "Process Image" to apply the algorithm
+7. Use pan and zoom to explore details in the result
+8. Save your settings as a preset for future use
 
 ## References
 
@@ -203,4 +282,4 @@ Beyond its original application for postage stamps, this technique has potential
 
 ## Credits
 
-This implementation was created in 2025 as a modern web-based adaptation of Peter Struycken's original algorithm.
+This implementation was created as a modern web-based adaptation of Peter Struycken's original algorithm by Vincent Bruijn <vebruijn@gmail.com> (c) 2025 with the help of Anthropic models claude-3.5-sonnet and claude-3.7-sonnet and OpenAI model gpt4.1.
