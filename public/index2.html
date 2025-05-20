@@ -230,7 +230,7 @@
             </div>
             <div class="control-group">
                 <label for="dotSize">Dot Size: <span id="dotSizeValue" class="slider-value">2</span></label>
-                <input type="range" id="dotSize" min="1" max="5" value="2" step="0.5">
+                <input type="range" id="dotSize" min="1" max="5" value="2" step="0.25">
             </div>
             <div class="control-group">
                 <label for="dotColor">Dot Color</label>
@@ -238,6 +238,10 @@
                     <input type="color" id="dotColor" value="#000000">
                     <span>Background will adjust automatically</span>
                 </div>
+            </div>
+            <div class="control-group">
+                <label for="territoryRadius">Territory Radius: <span id="territoryRadiusValue" class="slider-value">1.1</span></label>
+                <input type="range" id="territoryRadius" min="0.1" max="1.5" value="1.1" step="0.1">
             </div>
             <div class="control-group" style="grid-column: 1 / -1;">
                 <div class="tonal-range">
@@ -318,6 +322,8 @@
         const presetSelect = document.getElementById('presetSelect');
         const savePresetBtn = document.getElementById('savePresetBtn');
         const dotColorInput = document.getElementById('dotColor');
+        const territoryRadiusSlider = document.getElementById('territoryRadius');
+        const territoryRadiusValue = document.getElementById('territoryRadiusValue');
 
         // Canvas contexts
         const originalCtx = originalCanvas.getContext('2d');
@@ -473,6 +479,10 @@
         
         dotSizeSlider.addEventListener('input', () => {
             dotSizeValue.textContent = dotSizeSlider.value;
+        });
+        
+        territoryRadiusSlider.addEventListener('input', () => {
+            territoryRadiusValue.textContent = territoryRadiusSlider.value;
         });
 
         // Add function to update tonal values display
@@ -752,7 +762,7 @@
 
         // Randomize point positions (second phase of the algorithm)
         function randomizePointPositions(points, gridSize) {
-            const territoryRadius = 1.4; // Reduced radius for each point's territory
+            const territoryRadius = parseFloat(territoryRadiusSlider.value); // Use value from slider
             const maxMove = 3; // Maximum distance a point can move
             
             // Create a spatial hash grid to speed up nearby point checks
@@ -781,7 +791,8 @@
                 for (let attempts = 0; attempts < 5 && !foundValidMove; attempts++) {
                     // Generate random movement vector with magnitude between 1 and maxMove
                     const angle = Math.random() * Math.PI * 2;
-                    const magnitude = 1 + Math.random() * (maxMove - 1);
+                    const magnitude = Math.random() * (maxMove);
+                    // const magnitude = 1 + Math.random() * (maxMove - 1);
                     const dx = Math.round(Math.cos(angle) * magnitude);
                     const dy = Math.round(Math.sin(angle) * magnitude);
                     
@@ -914,6 +925,7 @@
                 gridSize: parseInt(gridSizeSlider.value),
                 iterations: parseInt(iterationsSlider.value),
                 dotSize: parseFloat(dotSizeSlider.value),
+                territoryRadius: parseFloat(territoryRadiusSlider.value),
                 dotColor: dotColorInput.value
             };
         }
@@ -932,6 +944,12 @@
             
             dotSizeSlider.value = preset.dotSize;
             dotSizeValue.textContent = preset.dotSize;
+            
+            // Update territory radius if present
+            if (preset.territoryRadius) {
+                territoryRadiusSlider.value = preset.territoryRadius;
+                territoryRadiusValue.textContent = preset.territoryRadius;
+            }
             
             // Update color if present in the preset
             if (preset.dotColor) {
