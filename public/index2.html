@@ -124,6 +124,15 @@
             color: #ff6600;
             display: none;
         }
+        input[type="range"] {
+            width: 75%;
+            display: block;
+        }
+        @media (max-width: 700px) {
+            input[type="range"] {
+                width: 100%;
+            }
+        }
         .tonal-range {
             display: flex;
             gap: 15px;
@@ -446,9 +455,11 @@
             // Apply brightness
             let adjusted = value + adjustments.brightness;
             
-            // Apply contrast
-            const factor = (259 * (adjustments.contrast * 255 + 255)) / (255 * (259 - adjustments.contrast * 255));
-            adjusted = factor * (adjusted - 128) + 128;
+            // Apply contrast - linear formula where:
+            // 0.0 = flat gray (no contrast)
+            // 1.0 = normal contrast (no change)
+            // 2.0 = maximum contrast
+            adjusted = (adjusted - 128) * adjustments.contrast + 128;
             
             return adjusted;
         }
