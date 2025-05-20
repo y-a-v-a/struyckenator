@@ -20,11 +20,14 @@
       .controls {
         position: absolute;
         bottom: 10px;
-        left: 10px;
-        background: rgba(255, 255, 255, 0.7);
+        right: 10px;
+        background: rgba(0, 0, 0, 0.5);
         padding: 10px;
-        border-radius: 5px;
+        border-radius: 3px;
         font-family: sans-serif;
+        color: #fff;
+        font-size: 12px;
+        text-align: right;
       }
       .controls button {
         margin: 5px;
@@ -36,7 +39,6 @@
       }
       #timer {
         display: inline-block;
-        width: 30px;
         text-align: right;
         margin-left: 5px;
       }
@@ -45,8 +47,6 @@
   <body>
     <canvas id="canvas"></canvas>
     <div class="controls">
-      <button id="regenerate">Regenerate</button>
-      <button id="toggleControls">Hide Controls</button>
       <div>
         <label for="gradientStrength">Gradient Strength: </label>
         <input type="range" id="gradientStrength" min="0" max="1" step="0.05" value="0.45" />
@@ -58,8 +58,6 @@
         <span id="densityValue">0.35</span>
       </div>
       <div>
-        <label for="autoRefresh">Auto Refresh: </label>
-        <input type="checkbox" id="autoRefresh" />
         <span id="timer">21s</span>
       </div>
     </div>
@@ -194,76 +192,58 @@
       }
 
       // Timer variables
-      let autoRefreshEnabled = false;
-      let timerInterval = null;
       let remainingTime = 21;
+      let timerInterval = null;
 
       // Auto refresh function
       function setupAutoRefresh() {
-        if (autoRefreshEnabled) {
-          clearInterval(timerInterval);
-          remainingTime = 21;
+        clearInterval(timerInterval);
+        remainingTime = 21;
+        updateTimerDisplay();
+
+        timerInterval = setInterval(() => {
+          remainingTime--;
           updateTimerDisplay();
 
-          timerInterval = setInterval(() => {
-            remainingTime--;
-            updateTimerDisplay();
-
-            if (remainingTime <= 0) {
-              config.seed = Math.random() * 10000;
-              generateImage();
-              remainingTime = 21;
-            }
-          }, 1000);
-        } else {
-          clearInterval(timerInterval);
-          document.getElementById('timer').textContent = '21s';
-        }
+          if (remainingTime <= 0) {
+            config.seed = Math.random() * 10000;
+            generateImage();
+            remainingTime = 21;
+          }
+        }, 1000);
       }
 
       function updateTimerDisplay() {
-        document.getElementById('timer').textContent = remainingTime + 's';
+        document.getElementById('timer').textContent = `Refreshing in ${remainingTime}s`;
       }
 
       // Event handlers
       window.addEventListener('resize', generateImage);
 
-      document.getElementById('regenerate').addEventListener('click', () => {
-        config.seed = Math.random() * 10000;
-        generateImage();
-      });
-
       const controlsElement = document.querySelector('.controls');
-      document.getElementById('toggleControls').addEventListener('click', () => {
-        if (controlsElement.style.display === 'none') {
-          controlsElement.style.display = 'block';
-          document.getElementById('toggleControls').textContent = 'Hide Controls';
-        } else {
-          controlsElement.style.display = 'none';
-          document.getElementById('toggleControls').textContent = 'Show Controls';
+      
+      // Add keyboard shortcut to toggle controls
+      document.addEventListener('keydown', (event) => {
+        if (event.key.toLowerCase() === 'h') {
+          controlsElement.style.display = controlsElement.style.display === 'none' ? 'block' : 'none';
         }
       });
 
       document.getElementById('gradientStrength').addEventListener('input', e => {
         config.gradientStrength = parseFloat(e.target.value);
-        document.getElementById('gradientValue').textContent = e.target.value;
+        document.getElementById('gradientValue').textContent = parseFloat(e.target.value).toFixed(2);
         generateImage();
       });
 
       document.getElementById('blackProbability').addEventListener('input', e => {
         config.blackProbability = parseFloat(e.target.value);
-        document.getElementById('densityValue').textContent = e.target.value;
+        document.getElementById('densityValue').textContent = parseFloat(e.target.value).toFixed(2);
         generateImage();
       });
 
-      // Set up auto refresh
-      document.getElementById('autoRefresh').addEventListener('change', e => {
-        autoRefreshEnabled = e.target.checked;
-        setupAutoRefresh();
-      });
-
-      // Initial generation
+      // Initial generation and start auto-refresh
       generateImage();
+      setupAutoRefresh();
     </script>
   </body>
 </html>

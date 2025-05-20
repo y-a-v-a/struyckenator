@@ -12,8 +12,9 @@
         justify-content: center;
         align-items: center;
         height: 100vh;
-        background-color: #f0f0f0;
+        background-color: #fff;
         overflow: hidden;
+        font-family: sans-serif;
       }
       canvas {
         display: block;
@@ -53,7 +54,7 @@
         const cellSize = canvas.width / gridSize;
 
         // Clear canvas
-        ctx.fillStyle = 'white';
+        ctx.fillStyle = 'rgb(243,244,240)';
         ctx.fillRect(0, 0, canvas.width, canvas.height);
 
         // Draw grid cells and triangles
@@ -63,8 +64,8 @@
             const y = row * cellSize;
 
             // Draw cell border (very light gray)
-            ctx.strokeStyle = '#eee';
-            ctx.strokeRect(x, y, cellSize, cellSize);
+            // ctx.strokeStyle = '#eee';
+            // ctx.strokeRect(x, y, cellSize, cellSize);
 
             // Get random triangle configuration for this cell
             drawTriangle(x, y, cellSize);
@@ -74,7 +75,7 @@
 
       // Function to draw a triangle in a cell
       function drawTriangle(x, y, size) {
-        ctx.fillStyle = 'black';
+        ctx.fillStyle = 'rgb(17,13,11)';
 
         // Possible corner positions (clockwise from top-left)
         const corners = [
@@ -241,6 +242,13 @@
           }
           indicator.textContent = `Refreshing in ${countdown}s`;
         }, 1000);
+
+        // Add keyboard listener for hiding controls
+        document.addEventListener('keydown', (event) => {
+          if (event.key.toLowerCase() === 'h') {
+            indicator.style.display = indicator.style.display === 'none' ? 'block' : 'none';
+          }
+        });
       }
 
       addRefreshIndicator();
