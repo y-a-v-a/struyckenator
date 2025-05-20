@@ -191,6 +191,68 @@
             border-radius: 4px;
             cursor: pointer;
         }
+        .image-actions {
+            display: flex;
+            gap: 10px;
+            margin-top: 10px;
+            justify-content: center;
+        }
+        .image-actions button {
+            padding: 6px 10px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        .image-actions button:hover {
+            background-color: #45a049;
+        }
+        #imageOverlay {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.8);
+    z-index: 1000;
+    justify-content: center;
+    align-items: center;
+    overflow: auto;
+}
+
+#overlayCanvasContainer {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    aspect-ratio: 1 / 1;
+    max-width: 90vmin;
+    max-height: 90vmin;
+}
+        #overlayCanvas {
+    max-width: 90%;
+    max-height: 90%;
+    box-shadow: 0 0 20px rgba(0,0,0,0.5);
+    aspect-ratio: 1 / 1;
+    object-fit: contain;
+}
+        #closeOverlay {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            background: none;
+            border: none;
+            color: white;
+            font-size: 24px;
+            cursor: pointer;
+        }
+        /* Hide overlay functionality for small screens */
+        @media (max-width: 700px) {
+            #viewLarger {
+                display: none;
+            }
+        }
     </style>
 </head>
 <body>
@@ -203,6 +265,18 @@
         <div>
             <h3>Processed Image</h3>
             <canvas id="processedCanvas"></canvas>
+            <div class="image-actions">
+                <button id="viewLarger">View Larger</button>
+                <button id="saveImage">Save Image</button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Image overlay for larger view -->
+    <div id="imageOverlay">
+        <button id="closeOverlay">×</button>
+        <div id="overlayCanvasContainer">
+            <canvas id="overlayCanvas"></canvas>
         </div>
     </div>
     
@@ -342,6 +416,7 @@
         let presets = {};
         let dotColor = '#000000';
         let bgColor = '#f0f0f0';
+        let overlayActive = false;
         
         // Pan and zoom variables
         let isPanning = false;
@@ -1068,6 +1143,105 @@
         
         // Listen for color changes
         dotColorInput.addEventListener('input', updateColors);
+
+        // Function to show processed image in overlay
+        function showImageOverlay() {
+            if (window.innerWidth <= 700) return; // Don't show overlay on small screens
+            
+            const overlay = document.getElementById('imageOverlay');
+            const overlayCanvas = document.getElementById('overlayCanvas');
+            const overlayCtx = overlayCanvas.getContext('2d');
+            
+                // Set overlay canvas size - make it larger than the original but ensure it's square
+    const maxSize = Math.min(window.innerWidth * 0.9, window.innerHeight * 0.9);
+    overlayCanvas.width = maxSize;
+    overlayCanvas.height = maxSize;
+    
+    // Force square aspect ratio in the DOM
+    overlayCanvas.style.width = maxSize + 'px';
+    overlayCanvas.style.height = maxSize + 'px';
+            
+            // Draw the processed image to the overlay canvas
+            overlayCtx.fillStyle = bgColor;
+            overlayCtx.fillRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+            
+            // Calculate scaling factor for the overlay
+            const gridSize = parseInt(gridSizeSlider.value);
+            const scale = maxSize / gridSize;
+            const currentDotSize = parseFloat(dotSizeSlider.value);
+            
+            // Draw points
+            overlayCtx.fillStyle = dotColor;
+            
+            // Only proceed if we have points
+            if (points && points.length > 0) {
+                // Calculate dot size ratio between original and enlarged canvas
+                const sizeRatio = maxSize / processedCanvas.width;
+                const enlargedDotSize = currentDotSize * sizeRatio;
+                
+                points.forEach(point => {
+                    overlayCtx.beginPath();
+                    overlayCtx.arc(
+                        point.x * scale, 
+                        point.y * scale, 
+                        enlargedDotSize, 
+                        0, 
+                        Math.PI * 2
+                    );
+                    overlayCtx.fill();
+                });
+                
+                // Show overlay
+                overlay.style.display = 'flex';
+                overlayActive = true;
+            } else {
+                // If there are no points, show an error message
+                statusEl.textContent = "No processed image data available. Process an image first.";
+            }
+        }
+        
+        // Function to save the processed image
+        function saveProcessedImage() {
+            // Create a temporary link element
+            const link = document.createElement('a');
+            
+            // Set the download attribute with a filename
+            link.download = 'struycken-processed.png';
+            
+            // Convert the canvas to a data URL
+            link.href = processedCanvas.toDataURL('image/png');
+            
+            // Append to the document, trigger click, and remove
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+        
+        // Event listeners for new features
+        document.getElementById('viewLarger').addEventListener('click', showImageOverlay);
+        document.getElementById('saveImage').addEventListener('click', saveProcessedImage);
+        
+        // Close overlay when close button is clicked
+        document.getElementById('closeOverlay').addEventListener('click', () => {
+            document.getElementById('imageOverlay').style.display = 'none';
+            overlayActive = false;
+        });
+        
+        // Close overlay when clicking outside the image
+        document.getElementById('imageOverlay').addEventListener('click', (e) => {
+            if (e.target === document.getElementById('imageOverlay')) {
+                document.getElementById('imageOverlay').style.display = 'none';
+                overlayActive = false;
+            }
+        });
+        
+        // Handle ESC key to close overlay
+        window.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && overlayActive) {
+                document.getElementById('imageOverlay').style.display = 'none';
+                overlayActive = false;
+            }
+        });
     </script>
 </body>
 </html>
