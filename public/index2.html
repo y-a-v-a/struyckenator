@@ -268,6 +268,17 @@
         };
         let currentRange = 'shadows';
         
+        // Pan and zoom variables
+        let isPanning = false;
+        let isCtrlKeyDown = false;
+        let zoomLevel = 1;
+        let panX = 0;
+        let panY = 0;
+        let lastMouseX = 0;
+        let lastMouseY = 0;
+        let originalImageWidth = 0;
+        let originalImageHeight = 0;
+        
         // Function to update canvas internal dimensions to match displayed size
         function updateCanvasDimensions() {
             // Get the computed style
@@ -294,6 +305,93 @@
                 drawProcessedImage(points, parseFloat(dotSizeSlider.value));
             }
         });
+
+        // Pan and zoom event listeners
+        originalCanvas.addEventListener('mousedown', (e) => {
+            if (originalImage) {
+                isPanning = true;
+                lastMouseX = e.offsetX;
+                lastMouseY = e.offsetY;
+                originalCanvas.style.cursor = 'grabbing';
+            }
+        });
+        
+        originalCanvas.addEventListener('mousemove', (e) => {
+            if (isPanning && originalImage) {
+                const deltaX = e.offsetX - lastMouseX;
+                const deltaY = e.offsetY - lastMouseY;
+                
+                panX += deltaX;
+                panY += deltaY;
+                
+                lastMouseX = e.offsetX;
+                lastMouseY = e.offsetY;
+                
+                drawOriginalImage();
+            }
+        });
+        
+        originalCanvas.addEventListener('mouseup', () => {
+            isPanning = false;
+            originalCanvas.style.cursor = 'default';
+        });
+        
+        originalCanvas.addEventListener('mouseleave', () => {
+            isPanning = false;
+            originalCanvas.style.cursor = 'default';
+        });
+        
+        originalCanvas.addEventListener('wheel', (e) => {
+            if (originalImage && isCtrlKeyDown) {
+                e.preventDefault();
+                
+                // Get mouse position relative to image
+                const rect = originalCanvas.getBoundingClientRect();
+                const mouseX = e.clientX - rect.left;
+                const mouseY = e.clientY - rect.top;
+                
+                // Calculate where the mouse is on the image
+                const viewportX = mouseX - panX;
+                const viewportY = mouseY - panY;
+                const imageSpaceX = viewportX / zoomLevel;
+                const imageSpaceY = viewportY / zoomLevel;
+                
+                // Apply zoom
+                const delta = e.deltaY > 0 ? 0.9 : 1.1; // Zoom in or out factor
+                zoomLevel *= delta;
+                
+                // Limit zoom
+                zoomLevel = Math.min(Math.max(0.1, zoomLevel), 10);
+                
+                // Adjust pan to keep the point under the mouse fixed
+                panX = mouseX - imageSpaceX * zoomLevel;
+                panY = mouseY - imageSpaceY * zoomLevel;
+                
+                drawOriginalImage();
+            }
+        });
+        
+        // Track ctrl/cmd key state
+        window.addEventListener('keydown', (e) => {
+            if (e.ctrlKey || e.metaKey) {
+                isCtrlKeyDown = true;
+                originalCanvas.style.cursor = 'zoom-in';
+            }
+        });
+        
+        window.addEventListener('keyup', (e) => {
+            if (!e.ctrlKey && !e.metaKey) {
+                isCtrlKeyDown = false;
+                originalCanvas.style.cursor = isPanning ? 'grabbing' : 'default';
+            }
+        });
+        
+        // Reset pan and zoom when loading a new image
+        function resetPanZoom() {
+            zoomLevel = 1;
+            panX = 0;
+            panY = 0;
+        }
 
         // Update slider value displays
         gridSizeSlider.addEventListener('input', () => {
@@ -363,6 +461,7 @@
             reader.onload = (e) => {
                 originalImage = new Image();
                 originalImage.onload = () => {
+                    resetPanZoom();
                     updateCanvasDimensions(); // Ensure canvas dimensions are up to date
                     drawOriginalImage();
                     processBtn.disabled = false;
@@ -396,21 +495,29 @@
                 }
             }
             
-            // Center the image
-            const x = (maxWidth - width) / 2;
-            const y = (maxHeight - height) / 2;
+            // Save original proportioned size
+            originalImageWidth = width;
+            originalImageHeight = height;
+            
+            // Apply zoom to dimensions
+            width *= zoomLevel;
+            height *= zoomLevel;
+            
+            // Center the image (with pan offset)
+            const x = (maxWidth - originalImageWidth) / 2 + panX;
+            const y = (maxHeight - originalImageHeight) / 2 + panY;
             
             // Create a temporary canvas for grayscale conversion and adjustments
             const tempCanvas = document.createElement('canvas');
-            tempCanvas.width = width;
-            tempCanvas.height = height;
+            tempCanvas.width = originalImageWidth;
+            tempCanvas.height = originalImageHeight;
             const tempCtx = tempCanvas.getContext('2d');
             
             // Draw the original image to temp canvas
-            tempCtx.drawImage(originalImage, 0, 0, width, height);
+            tempCtx.drawImage(originalImage, 0, 0, originalImageWidth, originalImageHeight);
             
             // Get image data for processing
-            const imageData = tempCtx.getImageData(0, 0, width, height);
+            const imageData = tempCtx.getImageData(0, 0, tempCanvas.width, tempCanvas.height);
             const data = imageData.data;
             
             // Process each pixel
