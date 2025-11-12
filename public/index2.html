@@ -1054,7 +1054,6 @@
         // Randomize point positions (second phase of the algorithm)
         function randomizePointPositions(points, gridSize) {
             const territoryRadius = parseFloat(territoryRadiusSlider.value); // Use value from slider
-            const maxMove = 3; // Maximum distance a point can move
             
             // Create a spatial hash grid to speed up nearby point checks
             const cellSize = territoryRadius * 2;
@@ -1091,13 +1090,11 @@
                     ];
                     const direction = directions[Math.floor(Math.random() * 4)];
 
-                    // Choose distance: 1 to maxMove (3)
-                    // "niet verder dan 3 plaatsen" - not more than 3 places
-                    const distance = 1 + Math.floor(Math.random() * maxMove);
-
-                    // Calculate movement in the chosen cardinal direction
-                    const dx = direction.dx * distance;
-                    const dy = direction.dy * distance;
+                    // Move exactly 1 grid cell per iteration in the chosen direction
+                    // The "3 plaatsen" in the Dutch text refers to the maximum territory,
+                    // not the movement distance per iteration
+                    const dx = direction.dx;
+                    const dy = direction.dy;
 
                     // Calculate new position
                     const newX = point.x + dx;
