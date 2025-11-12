@@ -247,6 +247,70 @@
             font-size: 24px;
             cursor: pointer;
         }
+
+        /* Webcam overlay styles */
+        #webcamOverlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.9);
+            z-index: 1001;
+            justify-content: center;
+            align-items: center;
+        }
+        #webcamContainer {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 20px;
+        }
+        #webcamVideo {
+            max-width: 90vmin;
+            max-height: 70vh;
+            border: 2px solid #4CAF50;
+            border-radius: 8px;
+        }
+        #webcamControls {
+            display: flex;
+            gap: 15px;
+        }
+        #webcamControls button {
+            padding: 12px 24px;
+            font-size: 16px;
+            cursor: pointer;
+            border: none;
+            border-radius: 4px;
+            font-weight: bold;
+        }
+        #captureBtn {
+            background-color: #4CAF50;
+            color: white;
+        }
+        #captureBtn:hover {
+            background-color: #45a049;
+        }
+        #cancelWebcamBtn {
+            background-color: #f44336;
+            color: white;
+        }
+        #cancelWebcamBtn:hover {
+            background-color: #da190b;
+        }
+        #closeWebcam {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            background: none;
+            border: none;
+            color: white;
+            font-size: 36px;
+            cursor: pointer;
+            z-index: 1002;
+        }
+
         /* Hide overlay functionality for small screens */
         @media (max-width: 700px) {
             #viewLarger {
@@ -279,7 +343,18 @@
             <canvas id="overlayCanvas"></canvas>
         </div>
     </div>
-    
+
+    <div id="webcamOverlay">
+        <button id="closeWebcam">×</button>
+        <div id="webcamContainer">
+            <video id="webcamVideo" autoplay playsinline></video>
+            <div id="webcamControls">
+                <button id="captureBtn">Capture Photo</button>
+                <button id="cancelWebcamBtn">Cancel</button>
+            </div>
+        </div>
+    </div>
+
     <div class="container">
         <div class="controls">
             <div class="control-group" style="grid-column: 1 / -1;">
@@ -293,6 +368,9 @@
             <div class="control-group">
                 <label for="imageUpload">Upload Image:</label>
                 <input type="file" id="imageUpload" accept="image/*">
+            </div>
+            <div class="control-group">
+                <button id="webcamBtn">Capture from Webcam</button>
             </div>
             <div class="control-group">
                 <label>
@@ -1418,6 +1496,88 @@
             if (e.key === 'Escape' && overlayActive) {
                 document.getElementById('imageOverlay').style.display = 'none';
                 overlayActive = false;
+            }
+        });
+
+        // Webcam functionality
+        let webcamStream = null;
+        const webcamBtn = document.getElementById('webcamBtn');
+        const webcamOverlay = document.getElementById('webcamOverlay');
+        const webcamVideo = document.getElementById('webcamVideo');
+        const captureBtn = document.getElementById('captureBtn');
+        const cancelWebcamBtn = document.getElementById('cancelWebcamBtn');
+        const closeWebcamBtn = document.getElementById('closeWebcam');
+
+        // Function to start webcam
+        async function startWebcam() {
+            try {
+                webcamStream = await navigator.mediaDevices.getUserMedia({
+                    video: {
+                        facingMode: 'user',
+                        width: { ideal: 1280 },
+                        height: { ideal: 720 }
+                    }
+                });
+                webcamVideo.srcObject = webcamStream;
+                webcamOverlay.style.display = 'flex';
+                statusEl.textContent = 'Webcam active. Position yourself and click Capture Photo.';
+            } catch (error) {
+                console.error('Error accessing webcam:', error);
+                statusEl.textContent = 'Error: Could not access webcam. Please check permissions.';
+            }
+        }
+
+        // Function to stop webcam
+        function stopWebcam() {
+            if (webcamStream) {
+                webcamStream.getTracks().forEach(track => track.stop());
+                webcamStream = null;
+                webcamVideo.srcObject = null;
+            }
+            webcamOverlay.style.display = 'none';
+        }
+
+        // Function to capture photo from webcam
+        function capturePhoto() {
+            // Create a temporary canvas to capture the frame
+            const captureCanvas = document.createElement('canvas');
+            captureCanvas.width = webcamVideo.videoWidth;
+            captureCanvas.height = webcamVideo.videoHeight;
+            const captureCtx = captureCanvas.getContext('2d');
+
+            // Draw the current video frame
+            captureCtx.drawImage(webcamVideo, 0, 0);
+
+            // Convert to image
+            captureCanvas.toBlob((blob) => {
+                const img = new Image();
+                img.onload = () => {
+                    originalImage = img;
+                    drawOriginalImage();
+                    processBtn.disabled = false;
+                    statusEl.textContent = 'Photo captured! Adjust controls and click Process Image.';
+
+                    // Reset processed canvas and points
+                    processedCtx.clearRect(0, 0, processedCanvas.width, processedCanvas.height);
+                    points = [];
+                };
+                img.src = URL.createObjectURL(blob);
+            });
+
+            // Stop and close webcam
+            stopWebcam();
+        }
+
+        // Event listeners for webcam
+        webcamBtn.addEventListener('click', startWebcam);
+        captureBtn.addEventListener('click', capturePhoto);
+        cancelWebcamBtn.addEventListener('click', stopWebcam);
+        closeWebcamBtn.addEventListener('click', stopWebcam);
+
+        // Close webcam on ESC key
+        window.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && webcamStream) {
+                stopWebcam();
             }
         });
     </script>
