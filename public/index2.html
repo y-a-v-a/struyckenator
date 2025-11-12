@@ -815,8 +815,8 @@
                     // Calculate the pixel index
                     const idx = (y * gridSize + xPos) * 4;
                     
-                    // Calculate grayscale value (average of RGB)
-                    const gray = Math.floor((data[idx] + data[idx + 1] + data[idx + 2]) / 3);
+                    // Calculate grayscale value (perceptual luminance)
+                    const gray = data[idx] * 0.299 + data[idx + 1] * 0.587 + data[idx + 2] * 0.114;
                     
                     // Invert grayscale (0=white, 255=black)
                     const invertedGray = 255 - gray;
