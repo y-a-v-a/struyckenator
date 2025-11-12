@@ -811,14 +811,63 @@
 
         // Reset button click handler
         resetBtn.addEventListener('click', () => {
-            updateCanvasDimensions(); // Ensure canvas dimensions are up to date
-            originalCtx.clearRect(0, 0, originalCanvas.width, originalCanvas.height);
+            // Reset all control values to defaults
+            gridSizeSlider.value = 128;
+            gridSizeValue.textContent = '128';
+
+            iterationsSlider.value = 20;
+            iterationsValue.textContent = '20';
+
+            dotSizeSlider.value = 2;
+            dotSizeValue.textContent = '2';
+
+            territoryRadiusSlider.value = 1.1;
+            territoryRadiusValue.textContent = '1.1';
+
+            dotColorInput.value = '#000000';
+            dotColor = '#000000';
+            bgColor = '#f0f0f0';
+
+            inverseImageCheckbox.checked = false;
+            useLegacyCheckbox.checked = false;
+
+            // Reset all tonal adjustments
+            adjustments = {
+                shadows: { brightness: 0, contrast: 1 },
+                midtones: { brightness: 0, contrast: 1 },
+                highlights: { brightness: 0, contrast: 1 }
+            };
+
+            // Reset to shadows range
+            currentRange = 'shadows';
+            document.querySelector('input[name="tonal-range"][value="shadows"]').checked = true;
+
+            // Reset brightness and contrast sliders
+            brightnessSlider.value = 0;
+            brightnessValue.textContent = '0';
+            contrastSlider.value = 1;
+            contrastValue.textContent = '1.00';
+
+            // Update tonal values display
+            updateTonalValues();
+
+            // Update active range styling
+            document.querySelectorAll('.tonal-values').forEach(el => {
+                el.classList.remove('active-range');
+            });
+            document.getElementById('shadows-values').classList.add('active-range');
+
+            // Clear processed canvas
             processedCtx.clearRect(0, 0, processedCanvas.width, processedCanvas.height);
-            imageUpload.value = '';
-            originalImage = null;
             points = [];
-            processBtn.disabled = true;
-            statusEl.textContent = 'Upload an image to begin';
+
+            // Redraw original image with reset controls if image is loaded
+            if (originalImage) {
+                drawOriginalImage();
+                statusEl.textContent = 'Controls reset. Click Process Image to apply Struycken algorithm.';
+            } else {
+                statusEl.textContent = 'Upload an image to begin';
+            }
         });
 
         // Main image processing function
