@@ -9,12 +9,15 @@
             font-family: Arial, sans-serif;
             max-width: 1000px;
             margin: 0 auto;
-            padding: 20px;
+            padding: 0 20px;
             background-color: #f5f5f5;
         }
         h1 {
             color: #333;
             text-align: center;
+        }
+        h4 {
+            margin: 0.6em 0;
         }
         .container {
             display: flex;
@@ -78,7 +81,6 @@
             }
         }
         .control-group {
-            margin-bottom: 15px;
             width: 100%;
         }
         label {
@@ -323,11 +325,11 @@
     <h1>Struycken Algorithm Image Processor</h1>
     <div class="canvas-container">
         <div>
-            <h3>Original Image</h3>
+            <h4>Original Image</h4>
             <canvas id="originalCanvas"></canvas>
         </div>
         <div>
-            <h3>Processed Image</h3>
+            <h4>Processed Image</h4>
             <canvas id="processedCanvas"></canvas>
             <div class="image-actions">
                 <button id="viewLarger">View Larger</button>
@@ -357,31 +359,6 @@
 
     <div class="container">
         <div class="controls">
-            <div class="control-group" style="grid-column: 1 / -1;">
-                <div class="preset-container">
-                    <select id="presetSelect">
-                        <option value="">-- Select Preset --</option>
-                    </select>
-                    <button id="savePresetBtn">Save Preset</button>
-                </div>
-            </div>
-            <div class="control-group">
-                <label for="imageUpload">Upload Image:</label>
-                <input type="file" id="imageUpload" accept="image/*">
-            </div>
-            <div class="control-group">
-                <button id="webcamBtn">Capture from Webcam</button>
-            </div>
-            <div class="control-group">
-                <label>
-                    <input type="checkbox" id="inverseImage">
-                    Inverse Image
-                </label>
-            </div>
-            <div class="control-group">
-                <label for="bgGrayscale">Background Gray: <span id="bgGrayscaleValue" class="slider-value">255</span></label>
-                <input type="range" id="bgGrayscale" min="0" max="255" value="255" step="1">
-            </div>
             <div class="control-group">
                 <label for="gridSize">Grid Size: <span id="gridSizeValue" class="slider-value">128</span></label>
                 <input type="range" id="gridSize" min="32" max="256" value="128" step="32">
@@ -393,13 +370,6 @@
             <div class="control-group">
                 <label for="dotSize">Dot Size: <span id="dotSizeValue" class="slider-value">2</span></label>
                 <input type="range" id="dotSize" min="1" max="5" value="2" step="0.25">
-            </div>
-            <div class="control-group">
-                <label for="dotColor">Dot Color</label>
-                <div class="color-picker-container">
-                    <input type="color" id="dotColor" value="#000000">
-                    <span>Background will adjust automatically</span>
-                </div>
             </div>
             <div class="control-group">
                 <label for="territoryRadius">Territory Radius: <span id="territoryRadiusValue" class="slider-value">1.1</span></label>
@@ -439,6 +409,30 @@
                 </label>
             </div>
             <div class="control-group">
+                <label for="dotColor">Dot Color</label>
+                <div class="color-picker-container">
+                    <input type="color" id="dotColor" value="#000000">
+                    <span>Background will adjust automatically</span>
+                </div>
+            </div>
+            <div class="control-group">
+                <label for="imageUpload">Upload Image:</label>
+                <input type="file" id="imageUpload" accept="image/*">
+            </div>
+            <div class="control-group">
+                <button id="webcamBtn">Capture from Webcam</button>
+            </div>
+            <div class="control-group">
+                <label>
+                    <input type="checkbox" id="inverseImage">
+                    Inverse Image
+                </label>
+            </div>
+            <div class="control-group">
+                <label for="bgGrayscale">Background Gray: <span id="bgGrayscaleValue" class="slider-value">255</span></label>
+                <input type="range" id="bgGrayscale" min="0" max="255" value="255" step="1">
+            </div>
+            <div class="control-group">
                 <button id="processBtn" disabled>Process Image</button>
                 <button id="resetBtn">Reset</button>
                 <span id="processingIndicator" class="processing-indicator">Processing...</span>
@@ -446,13 +440,21 @@
             <div class="control-group">
                 <div id="status" class="status">Upload an image to begin</div>
             </div>
+            <div class="control-group" style="grid-column: 1 / -1;">
+                <div class="preset-container">
+                    <select id="presetSelect">
+                        <option value="">-- Select Preset --</option>
+                    </select>
+                    <button id="savePresetBtn">Save Preset</button>
+                </div>
+            </div>
         </div>
         
     </div>
 
     <div class="container">
         <div class="controls" style="grid-column: 1 / -1;">
-            <h3>Interaction Instructions</h3>
+            <h4>Interaction Instructions</h4>
             <div style="margin-bottom: 15px;">
                 <strong>Pan:</strong> Click and drag on the original image to pan and explore different areas.
             </div>
