@@ -295,6 +295,12 @@
                 <input type="file" id="imageUpload" accept="image/*">
             </div>
             <div class="control-group">
+                <label>
+                    <input type="checkbox" id="inverseImage">
+                    Inverse Image
+                </label>
+            </div>
+            <div class="control-group">
                 <label for="gridSize">Grid Size: <span id="gridSizeValue" class="slider-value">128</span></label>
                 <input type="range" id="gridSize" min="32" max="256" value="128" step="32">
             </div>
@@ -343,6 +349,12 @@
             <div class="control-group">
                 <label for="brightness">Brightness: <span id="brightnessValue" class="slider-value">0</span></label>
                 <input type="range" id="brightness" min="-100" max="100" value="0" step="1">
+            </div>
+            <div class="control-group">
+                <label>
+                    <input type="checkbox" id="useLegacy">
+                    Use Legacy
+                </label>
             </div>
             <div class="control-group">
                 <button id="processBtn" disabled>Process Image</button>
@@ -398,6 +410,8 @@
         const dotColorInput = document.getElementById('dotColor');
         const territoryRadiusSlider = document.getElementById('territoryRadius');
         const territoryRadiusValue = document.getElementById('territoryRadiusValue');
+        const inverseImageCheckbox = document.getElementById('inverseImage');
+        const useLegacyCheckbox = document.getElementById('useLegacy');
 
         // Canvas contexts
         const originalCtx = originalCanvas.getContext('2d');
@@ -560,6 +574,18 @@
             territoryRadiusValue.textContent = territoryRadiusSlider.value;
         });
 
+        inverseImageCheckbox.addEventListener('change', () => {
+            if (originalImage) {
+                drawOriginalImage();
+            }
+        });
+
+        useLegacyCheckbox.addEventListener('change', () => {
+            if (originalImage) {
+                drawOriginalImage();
+            }
+        });
+
         // Add function to update tonal values display
         function updateTonalValues() {
             Object.keys(adjustments).forEach(range => {
@@ -698,8 +724,13 @@
                 }
                 
                 // Clamp values
-                const final = Math.max(0, Math.min(255, adjusted));
-                
+                let final = Math.max(0, Math.min(255, adjusted));
+
+                // Apply inversion if checkbox is checked
+                if (inverseImageCheckbox.checked) {
+                    final = 255 - final;
+                }
+
                 data[i] = final;     // R
                 data[i + 1] = final; // G
                 data[i + 2] = final; // B
@@ -713,16 +744,51 @@
         }
 
         function applyAdjustments(value, adjustments) {
-            // Apply brightness
-            let adjusted = value + adjustments.brightness;
-            
-            // Apply contrast - linear formula where:
-            // 0.0 = flat gray (no contrast)
-            // 1.0 = normal contrast (no change)
-            // 2.0 = maximum contrast
-            adjusted = (adjusted - 128) * adjustments.contrast + 128;
-            
-            return adjusted;
+            if (useLegacyCheckbox.checked) {
+                // Legacy method: Simple linear adjustments (pre-CS3)
+                // This method can clip highlights and shadows
+                let adjusted = value + adjustments.brightness;
+                adjusted = (adjusted - 128) * adjustments.contrast + 128;
+                return adjusted;
+            } else {
+                // Modern method: Non-linear adjustments that preserve detail (CS3+)
+                // Normalize to 0-1 range for calculations
+                let normalized = value / 255;
+
+                // Apply brightness using a non-linear curve that tapers at extremes
+                // This preserves highlight and shadow detail
+                const brightnessAmount = adjustments.brightness / 255;
+                if (brightnessAmount > 0) {
+                    // Brighten: less effect on already bright values
+                    normalized = normalized + brightnessAmount * (1 - normalized);
+                } else {
+                    // Darken: less effect on already dark values
+                    normalized = normalized + brightnessAmount * normalized;
+                }
+
+                // Apply contrast using an S-curve that protects extremes
+                // Map contrast slider (0-2) to a more usable range
+                const contrastFactor = adjustments.contrast;
+                if (contrastFactor !== 1.0) {
+                    // Center around 0.5 (mid-gray)
+                    normalized = (normalized - 0.5) * contrastFactor + 0.5;
+
+                    // Apply subtle S-curve to smooth the transition
+                    // This prevents harsh clipping at extremes
+                    if (normalized > 0.5) {
+                        const t = (normalized - 0.5) * 2; // 0-1 range for upper half
+                        const eased = t * t * (3 - 2 * t); // Smoothstep function
+                        normalized = 0.5 + eased * 0.5;
+                    } else {
+                        const t = normalized * 2; // 0-1 range for lower half
+                        const eased = t * t * (3 - 2 * t); // Smoothstep function
+                        normalized = eased * 0.5;
+                    }
+                }
+
+                // Convert back to 0-255 range
+                return normalized * 255;
+            }
         }
 
         // Process button click handler
@@ -815,8 +881,8 @@
                     // Calculate the pixel index
                     const idx = (y * gridSize + xPos) * 4;
                     
-                    // Calculate grayscale value (average of RGB)
-                    const gray = Math.floor((data[idx] + data[idx + 1] + data[idx + 2]) / 3);
+                    // Calculate grayscale value (perceptual luminance)
+                    const gray = data[idx] * 0.299 + data[idx + 1] * 0.587 + data[idx + 2] * 0.114;
                     
                     // Invert grayscale (0=white, 255=black)
                     const invertedGray = 255 - gray;
