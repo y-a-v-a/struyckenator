@@ -1336,21 +1336,63 @@
             }
         }
         
-        // Function to save the processed image
+        // Function to save the processed image at high resolution
         function saveProcessedImage() {
+            if (!points || points.length === 0) {
+                statusEl.textContent = "No processed image data available. Process an image first.";
+                return;
+            }
+
+            // Create a high-resolution temporary canvas for export
+            const exportCanvas = document.createElement('canvas');
+            const exportSize = 4096; // High resolution for detailed output
+            exportCanvas.width = exportSize;
+            exportCanvas.height = exportSize;
+            const exportCtx = exportCanvas.getContext('2d');
+
+            // Fill background
+            exportCtx.fillStyle = bgColor;
+            exportCtx.fillRect(0, 0, exportCanvas.width, exportCanvas.height);
+
+            // Calculate scaling factor for high-res export
+            const gridSize = parseInt(gridSizeSlider.value);
+            const scale = exportSize / gridSize;
+            const currentDotSize = parseFloat(dotSizeSlider.value);
+
+            // Calculate dot size for high-res export
+            const sizeRatio = exportSize / processedCanvas.width;
+            const exportDotSize = currentDotSize * sizeRatio;
+
+            // Draw points at high resolution
+            exportCtx.fillStyle = dotColor;
+            points.forEach(point => {
+                exportCtx.beginPath();
+                exportCtx.arc(
+                    point.x * scale,
+                    point.y * scale,
+                    exportDotSize,
+                    0,
+                    Math.PI * 2
+                );
+                exportCtx.fill();
+            });
+
             // Create a temporary link element
             const link = document.createElement('a');
-            
+
             // Set the download attribute with a filename
-            link.download = 'struycken-processed.png';
-            
-            // Convert the canvas to a data URL
-            link.href = processedCanvas.toDataURL('image/png');
-            
+            link.download = 'struycken-processed-4096.png';
+
+            // Convert the high-res canvas to a data URL
+            link.href = exportCanvas.toDataURL('image/png');
+
             // Append to the document, trigger click, and remove
             document.body.appendChild(link);
             link.click();
             document.body.removeChild(link);
+
+            // Update status
+            statusEl.textContent = 'High-resolution image (4096x4096) saved successfully!';
         }
         
         // Event listeners for new features
