@@ -295,6 +295,12 @@
                 <input type="file" id="imageUpload" accept="image/*">
             </div>
             <div class="control-group">
+                <label>
+                    <input type="checkbox" id="inverseImage">
+                    Inverse Image
+                </label>
+            </div>
+            <div class="control-group">
                 <label for="gridSize">Grid Size: <span id="gridSizeValue" class="slider-value">128</span></label>
                 <input type="range" id="gridSize" min="32" max="256" value="128" step="32">
             </div>
@@ -398,6 +404,7 @@
         const dotColorInput = document.getElementById('dotColor');
         const territoryRadiusSlider = document.getElementById('territoryRadius');
         const territoryRadiusValue = document.getElementById('territoryRadiusValue');
+        const inverseImageCheckbox = document.getElementById('inverseImage');
 
         // Canvas contexts
         const originalCtx = originalCanvas.getContext('2d');
@@ -560,6 +567,12 @@
             territoryRadiusValue.textContent = territoryRadiusSlider.value;
         });
 
+        inverseImageCheckbox.addEventListener('change', () => {
+            if (originalImage) {
+                drawOriginalImage();
+            }
+        });
+
         // Add function to update tonal values display
         function updateTonalValues() {
             Object.keys(adjustments).forEach(range => {
@@ -698,8 +711,13 @@
                 }
                 
                 // Clamp values
-                const final = Math.max(0, Math.min(255, adjusted));
-                
+                let final = Math.max(0, Math.min(255, adjusted));
+
+                // Apply inversion if checkbox is checked
+                if (inverseImageCheckbox.checked) {
+                    final = 255 - final;
+                }
+
                 data[i] = final;     // R
                 data[i + 1] = final; // G
                 data[i + 2] = final; // B
