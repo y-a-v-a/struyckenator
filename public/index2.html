@@ -1042,7 +1042,12 @@
                     
                     // If sum exceeds 255, place a point
                     if (sum >= 255) {
-                        points.push({ x: xPos, y: y });
+                        points.push({
+                            x: xPos,
+                            y: y,
+                            originX: xPos,  // Track original position
+                            originY: y      // Track original position
+                        });
                         sum -= 255;
                     }
                 }
@@ -1076,6 +1081,15 @@
             for (const i of indices) {
                 const point = points[i];
 
+                // Check if point has already reached its maximum displacement (3 units from origin)
+                const currentDisplacementX = Math.abs(point.x - point.originX);
+                const currentDisplacementY = Math.abs(point.y - point.originY);
+
+                // Skip points that are already at the boundary in both directions
+                if (currentDisplacementX >= 3 && currentDisplacementY >= 3) {
+                    continue;
+                }
+
                 // Try multiple random moves for each point (increasing chances of finding valid move)
                 let foundValidMove = false;
                 for (let attempts = 0; attempts < 5 && !foundValidMove; attempts++) {
@@ -1083,26 +1097,28 @@
                     // This matches the Dutch algorithm description:
                     // "naar onderen of naar boven, of naar links en rechts"
                     const directions = [
-                        { dx: 0, dy: -1 },  // up
-                        { dx: 0, dy: 1 },   // down
-                        { dx: -1, dy: 0 },  // left
-                        { dx: 1, dy: 0 }    // right
+                        { dx: 0, dy: -0.25 },  // up
+                        { dx: 0, dy: 0.25 },   // down
+                        { dx: -0.25, dy: 0 },  // left
+                        { dx: 0.25, dy: 0 }    // right
                     ];
                     const direction = directions[Math.floor(Math.random() * 4)];
 
-                    // Move exactly 1 grid cell per iteration in the chosen direction
-                    // The "3 plaatsen" in the Dutch text refers to the maximum territory,
-                    // not the movement distance per iteration
-                    const dx = direction.dx;
-                    const dy = direction.dy;
+                    // Calculate new position with sub-grid movement (0.25 grid cell steps)
+                    const newX = point.x + direction.dx;
+                    const newY = point.y + direction.dy;
 
-                    // Calculate new position
-                    const newX = point.x + dx;
-                    const newY = point.y + dy;
-                    
                     // Check if new position is within grid bounds
                     if (newX < 0 || newX >= gridSize || newY < 0 || newY >= gridSize) {
                         continue; // Skip if out of bounds
+                    }
+
+                    // Check if new position would exceed the 3-unit boundary from origin
+                    const newDisplacementX = Math.abs(newX - point.originX);
+                    const newDisplacementY = Math.abs(newY - point.originY);
+
+                    if (newDisplacementX > 3 || newDisplacementY > 3) {
+                        continue; // Skip if would exceed 3-unit boundary
                     }
                     
                     // Check if new position overlaps with nearby points' territories
