@@ -351,6 +351,12 @@
                 <input type="range" id="brightness" min="-100" max="100" value="0" step="1">
             </div>
             <div class="control-group">
+                <label>
+                    <input type="checkbox" id="useLegacy">
+                    Use Legacy
+                </label>
+            </div>
+            <div class="control-group">
                 <button id="processBtn" disabled>Process Image</button>
                 <button id="resetBtn">Reset</button>
                 <span id="processingIndicator" class="processing-indicator">Processing...</span>
@@ -405,6 +411,7 @@
         const territoryRadiusSlider = document.getElementById('territoryRadius');
         const territoryRadiusValue = document.getElementById('territoryRadiusValue');
         const inverseImageCheckbox = document.getElementById('inverseImage');
+        const useLegacyCheckbox = document.getElementById('useLegacy');
 
         // Canvas contexts
         const originalCtx = originalCanvas.getContext('2d');
@@ -573,6 +580,12 @@
             }
         });
 
+        useLegacyCheckbox.addEventListener('change', () => {
+            if (originalImage) {
+                drawOriginalImage();
+            }
+        });
+
         // Add function to update tonal values display
         function updateTonalValues() {
             Object.keys(adjustments).forEach(range => {
@@ -731,16 +744,51 @@
         }
 
         function applyAdjustments(value, adjustments) {
-            // Apply brightness
-            let adjusted = value + adjustments.brightness;
-            
-            // Apply contrast - linear formula where:
-            // 0.0 = flat gray (no contrast)
-            // 1.0 = normal contrast (no change)
-            // 2.0 = maximum contrast
-            adjusted = (adjusted - 128) * adjustments.contrast + 128;
-            
-            return adjusted;
+            if (useLegacyCheckbox.checked) {
+                // Legacy method: Simple linear adjustments (pre-CS3)
+                // This method can clip highlights and shadows
+                let adjusted = value + adjustments.brightness;
+                adjusted = (adjusted - 128) * adjustments.contrast + 128;
+                return adjusted;
+            } else {
+                // Modern method: Non-linear adjustments that preserve detail (CS3+)
+                // Normalize to 0-1 range for calculations
+                let normalized = value / 255;
+
+                // Apply brightness using a non-linear curve that tapers at extremes
+                // This preserves highlight and shadow detail
+                const brightnessAmount = adjustments.brightness / 255;
+                if (brightnessAmount > 0) {
+                    // Brighten: less effect on already bright values
+                    normalized = normalized + brightnessAmount * (1 - normalized);
+                } else {
+                    // Darken: less effect on already dark values
+                    normalized = normalized + brightnessAmount * normalized;
+                }
+
+                // Apply contrast using an S-curve that protects extremes
+                // Map contrast slider (0-2) to a more usable range
+                const contrastFactor = adjustments.contrast;
+                if (contrastFactor !== 1.0) {
+                    // Center around 0.5 (mid-gray)
+                    normalized = (normalized - 0.5) * contrastFactor + 0.5;
+
+                    // Apply subtle S-curve to smooth the transition
+                    // This prevents harsh clipping at extremes
+                    if (normalized > 0.5) {
+                        const t = (normalized - 0.5) * 2; // 0-1 range for upper half
+                        const eased = t * t * (3 - 2 * t); // Smoothstep function
+                        normalized = 0.5 + eased * 0.5;
+                    } else {
+                        const t = normalized * 2; // 0-1 range for lower half
+                        const eased = t * t * (3 - 2 * t); // Smoothstep function
+                        normalized = eased * 0.5;
+                    }
+                }
+
+                // Convert back to 0-255 range
+                return normalized * 255;
+            }
         }
 
         // Process button click handler
