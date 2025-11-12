@@ -368,12 +368,12 @@
                 <input type="range" id="iterations" min="1" max="50" value="20">
             </div>
             <div class="control-group">
-                <label for="dotSize">Dot Size: <span id="dotSizeValue" class="slider-value">2</span></label>
-                <input type="range" id="dotSize" min="1" max="5" value="2" step="0.25">
+                <label for="dotSize">Dot Size: <span id="dotSizeValue" class="slider-value">1.5</span></label>
+                <input type="range" id="dotSize" min="1" max="5" value="1.5" step="0.25">
             </div>
             <div class="control-group">
-                <label for="territoryRadius">Territory Radius: <span id="territoryRadiusValue" class="slider-value">1.1</span></label>
-                <input type="range" id="territoryRadius" min="0.1" max="1.5" value="1.1" step="0.1">
+                <label for="territoryRadius">Territory Radius: <span id="territoryRadiusValue" class="slider-value">0.5</span></label>
+                <input type="range" id="territoryRadius" min="0.1" max="1.5" value="0.5" step="0.05">
             </div>
             <div class="control-group" style="grid-column: 1 / -1;">
                 <div class="tonal-range">
@@ -916,11 +916,11 @@
             iterationsSlider.value = 20;
             iterationsValue.textContent = '20';
 
-            dotSizeSlider.value = 2;
-            dotSizeValue.textContent = '2';
+            dotSizeSlider.value = 1.5;
+            dotSizeValue.textContent = '1.5';
 
-            territoryRadiusSlider.value = 1.1;
-            territoryRadiusValue.textContent = '1.1';
+            territoryRadiusSlider.value = 0.5;
+            territoryRadiusValue.textContent = '0.5';
 
             dotColorInput.value = '#000000';
             dotColor = '#000000';
@@ -1096,11 +1096,12 @@
                     // Choose one of 4 cardinal directions: up, down, left, right
                     // This matches the Dutch algorithm description:
                     // "naar onderen of naar boven, of naar links en rechts"
+                    const subgridOffset = 0.4;
                     const directions = [
-                        { dx: 0, dy: -0.25 },  // up
-                        { dx: 0, dy: 0.25 },   // down
-                        { dx: -0.25, dy: 0 },  // left
-                        { dx: 0.25, dy: 0 }    // right
+                        { dx: 0, dy: -subgridOffset },  // up
+                        { dx: 0, dy: subgridOffset },   // down
+                        { dx: -subgridOffset, dy: 0 },  // left
+                        { dx: subgridOffset, dy: 0 }    // right
                     ];
                     const direction = directions[Math.floor(Math.random() * 4)];
 
@@ -1117,7 +1118,7 @@
                     const newDisplacementX = Math.abs(newX - point.originX);
                     const newDisplacementY = Math.abs(newY - point.originY);
 
-                    if (newDisplacementX > 3 || newDisplacementY > 3) {
+                    if (newDisplacementX > (3 * subgridOffset) || newDisplacementY > (3 * subgridOffset)) {
                         continue; // Skip if would exceed 3-unit boundary
                     }
                     
