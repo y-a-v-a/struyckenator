@@ -301,6 +301,10 @@
                 </label>
             </div>
             <div class="control-group">
+                <label for="bgGrayscale">Background Gray: <span id="bgGrayscaleValue" class="slider-value">255</span></label>
+                <input type="range" id="bgGrayscale" min="0" max="255" value="255" step="1">
+            </div>
+            <div class="control-group">
                 <label for="gridSize">Grid Size: <span id="gridSizeValue" class="slider-value">128</span></label>
                 <input type="range" id="gridSize" min="32" max="256" value="128" step="32">
             </div>
@@ -412,6 +416,8 @@
         const territoryRadiusValue = document.getElementById('territoryRadiusValue');
         const inverseImageCheckbox = document.getElementById('inverseImage');
         const useLegacyCheckbox = document.getElementById('useLegacy');
+        const bgGrayscaleSlider = document.getElementById('bgGrayscale');
+        const bgGrayscaleValue = document.getElementById('bgGrayscaleValue');
 
         // Canvas contexts
         const originalCtx = originalCanvas.getContext('2d');
@@ -586,6 +592,13 @@
             }
         });
 
+        bgGrayscaleSlider.addEventListener('input', () => {
+            bgGrayscaleValue.textContent = bgGrayscaleSlider.value;
+            if (originalImage) {
+                drawOriginalImage();
+            }
+        });
+
         // Add function to update tonal values display
         function updateTonalValues() {
             Object.keys(adjustments).forEach(range => {
@@ -692,8 +705,13 @@
             tempCanvas.width = originalImageWidth;
             tempCanvas.height = originalImageHeight;
             const tempCtx = tempCanvas.getContext('2d');
-            
-            // Draw the original image to temp canvas
+
+            // Fill background with the specified grayscale value (for transparency)
+            const bgGray = parseInt(bgGrayscaleSlider.value);
+            tempCtx.fillStyle = `rgb(${bgGray}, ${bgGray}, ${bgGray})`;
+            tempCtx.fillRect(0, 0, tempCanvas.width, tempCanvas.height);
+
+            // Draw the original image to temp canvas (transparent areas will show background)
             tempCtx.drawImage(originalImage, 0, 0, originalImageWidth, originalImageHeight);
             
             // Get image data for processing
@@ -830,6 +848,9 @@
 
             inverseImageCheckbox.checked = false;
             useLegacyCheckbox.checked = false;
+
+            bgGrayscaleSlider.value = 255;
+            bgGrayscaleValue.textContent = '255';
 
             // Reset all tonal adjustments
             adjustments = {
