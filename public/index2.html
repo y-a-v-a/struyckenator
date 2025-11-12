@@ -1076,17 +1076,29 @@
             
             for (const i of indices) {
                 const point = points[i];
-                
+
                 // Try multiple random moves for each point (increasing chances of finding valid move)
                 let foundValidMove = false;
                 for (let attempts = 0; attempts < 5 && !foundValidMove; attempts++) {
-                    // Generate random movement vector with magnitude between 1 and maxMove
-                    const angle = Math.random() * Math.PI * 2;
-                    const magnitude = Math.random() * (maxMove);
-                    // const magnitude = 1 + Math.random() * (maxMove - 1);
-                    const dx = Math.round(Math.cos(angle) * magnitude);
-                    const dy = Math.round(Math.sin(angle) * magnitude);
-                    
+                    // Choose one of 4 cardinal directions: up, down, left, right
+                    // This matches the Dutch algorithm description:
+                    // "naar onderen of naar boven, of naar links en rechts"
+                    const directions = [
+                        { dx: 0, dy: -1 },  // up
+                        { dx: 0, dy: 1 },   // down
+                        { dx: -1, dy: 0 },  // left
+                        { dx: 1, dy: 0 }    // right
+                    ];
+                    const direction = directions[Math.floor(Math.random() * 4)];
+
+                    // Choose distance: 1 to maxMove (3)
+                    // "niet verder dan 3 plaatsen" - not more than 3 places
+                    const distance = 1 + Math.floor(Math.random() * maxMove);
+
+                    // Calculate movement in the chosen cardinal direction
+                    const dx = direction.dx * distance;
+                    const dy = direction.dy * distance;
+
                     // Calculate new position
                     const newX = point.x + dx;
                     const newY = point.y + dy;
