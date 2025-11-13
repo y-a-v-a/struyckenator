@@ -368,12 +368,12 @@
                 <input type="range" id="iterations" min="1" max="50" value="20">
             </div>
             <div class="control-group">
-                <label for="dotSize">Dot Size: <span id="dotSizeValue" class="slider-value">1.5</span></label>
-                <input type="range" id="dotSize" min="1" max="5" value="1.5" step="0.25">
+                <label for="dotSize">Dot Size: <span id="dotSizeValue" class="slider-value">1</span></label>
+                <input type="range" id="dotSize" min="0.1" max="2" value="1" step="0.1">
             </div>
             <div class="control-group">
-                <label for="territoryRadius">Territory Radius: <span id="territoryRadiusValue" class="slider-value">0.5</span></label>
-                <input type="range" id="territoryRadius" min="0.1" max="1.5" value="0.5" step="0.05">
+                <label for="movementStep">Movement Step: <span id="movementStepValue" class="slider-value">0.5</span></label>
+                <input type="range" id="movementStep" min="0.1" max="1.5" value="0.5" step="0.05">
             </div>
             <div class="control-group" style="grid-column: 1 / -1;">
                 <div class="tonal-range">
@@ -492,8 +492,8 @@
         const presetSelect = document.getElementById('presetSelect');
         const savePresetBtn = document.getElementById('savePresetBtn');
         const dotColorInput = document.getElementById('dotColor');
-        const territoryRadiusSlider = document.getElementById('territoryRadius');
-        const territoryRadiusValue = document.getElementById('territoryRadiusValue');
+        const movementStepSlider = document.getElementById('movementStep');
+        const movementStepValue = document.getElementById('movementStepValue');
         const inverseImageCheckbox = document.getElementById('inverseImage');
         const useLegacyCheckbox = document.getElementById('useLegacy');
         const bgGrayscaleSlider = document.getElementById('bgGrayscale');
@@ -656,8 +656,8 @@
             dotSizeValue.textContent = dotSizeSlider.value;
         });
         
-        territoryRadiusSlider.addEventListener('input', () => {
-            territoryRadiusValue.textContent = territoryRadiusSlider.value;
+        movementStepSlider.addEventListener('input', () => {
+            movementStepValue.textContent = movementStepSlider.value;
         });
 
         inverseImageCheckbox.addEventListener('change', () => {
@@ -916,11 +916,11 @@
             iterationsSlider.value = 20;
             iterationsValue.textContent = '20';
 
-            dotSizeSlider.value = 1.5;
-            dotSizeValue.textContent = '1.5';
+            dotSizeSlider.value = 1;
+            dotSizeValue.textContent = '1';
 
-            territoryRadiusSlider.value = 0.5;
-            territoryRadiusValue.textContent = '0.5';
+            movementStepSlider.value = 0.5;
+            movementStepValue.textContent = '0.5';
 
             dotColorInput.value = '#000000';
             dotColor = '#000000';
@@ -1058,11 +1058,11 @@
 
         // Randomize point positions (second phase of the algorithm)
         function randomizePointPositions(points, gridSize) {
-            const territoryRadius = parseFloat(territoryRadiusSlider.value); // Use value from slider
-            
+            const subgridOffset = parseFloat(movementStepSlider.value); // Use value from slider
+
             // Create a spatial hash grid to speed up nearby point checks
-            const cellSize = territoryRadius * 2;
-            const gridCells = Math.ceil(gridSize / cellSize);
+            const cellSize = 1;
+            const gridCells = gridSize;
             const spatialGrid = Array(gridCells).fill().map(() => Array(gridCells).fill().map(() => []));
             
             // Add all points to the spatial grid
@@ -1096,7 +1096,6 @@
                     // Choose one of 4 cardinal directions: up, down, left, right
                     // This matches the Dutch algorithm description:
                     // "naar onderen of naar boven, of naar links en rechts"
-                    const subgridOffset = 0.4;
                     const directions = [
                         { dx: 0, dy: -subgridOffset },  // up
                         { dx: 0, dy: subgridOffset },   // down
@@ -1136,11 +1135,11 @@
                                 
                                 const otherPoint = points[j];
                                 const distance = Math.sqrt(
-                                    Math.pow(newX - otherPoint.x, 2) + 
+                                    Math.pow(newX - otherPoint.x, 2) +
                                     Math.pow(newY - otherPoint.y, 2)
                                 );
-                                
-                                if (distance < territoryRadius * 2) {
+
+                                if (distance < 1) {
                                     canMove = false;
                                     break;
                                 }
@@ -1242,7 +1241,7 @@
                 gridSize: parseInt(gridSizeSlider.value),
                 iterations: parseInt(iterationsSlider.value),
                 dotSize: parseFloat(dotSizeSlider.value),
-                territoryRadius: parseFloat(territoryRadiusSlider.value),
+                movementStep: parseFloat(movementStepSlider.value),
                 dotColor: dotColorInput.value
             };
         }
@@ -1261,13 +1260,13 @@
             
             dotSizeSlider.value = preset.dotSize;
             dotSizeValue.textContent = preset.dotSize;
-            
-            // Update territory radius if present
-            if (preset.territoryRadius) {
-                territoryRadiusSlider.value = preset.territoryRadius;
-                territoryRadiusValue.textContent = preset.territoryRadius;
+
+            // Update movement step if present
+            if (preset.movementStep) {
+                movementStepSlider.value = preset.movementStep;
+                movementStepValue.textContent = preset.movementStep;
             }
-            
+
             // Update color if present in the preset
             if (preset.dotColor) {
                 dotColorInput.value = preset.dotColor;
