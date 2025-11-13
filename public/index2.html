@@ -1062,7 +1062,7 @@
 
             // Create a spatial hash grid to speed up nearby point checks
             const cellSize = 1;
-            const gridCells = Math.ceil(gridSize / cellSize);
+            const gridCells = gridSize;
             const spatialGrid = Array(gridCells).fill().map(() => Array(gridCells).fill().map(() => []));
             
             // Add all points to the spatial grid
