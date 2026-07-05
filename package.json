@@ -6,7 +6,7 @@
   "scripts": {
     "start": "msaada -d public -p 3000",
     "lint": "eslint public/*.js",
-    "test": "echo \"No tests specified\""
+    "test": "node --test test/*.test.mjs"
   },
   "keywords": [
     "generative-art",
