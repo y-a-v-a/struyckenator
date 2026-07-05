@@ -1,0 +1,694 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Struycken Image Processor (index4)</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' fill='%23f4f1ea'/%3E%3Cg fill='%231d1d1b'%3E%3Ccircle cx='4' cy='5' r='1.4'/%3E%3Ccircle cx='11' cy='3.6' r='1.4'/%3E%3Ccircle cx='7.4' cy='9' r='1.4'/%3E%3Ccircle cx='12.6' cy='11.4' r='1.4'/%3E%3Ccircle cx='3.4' cy='12.2' r='1.4'/%3E%3C/g%3E%3C/svg%3E">
+  <style>
+    :root {
+      font-size: 16px;
+      --bg: #f5f4f0;
+      --panel: #ffffff;
+      --text: #1d1d1b;
+      --muted: #6b6b66;
+      --border: #d9d6cd;
+      --accent: #b3502d;
+      --canvas-bg: #ffffff;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #191918;
+        --panel: #232321;
+        --text: #e8e6df;
+        --muted: #9a988f;
+        --border: #3a3936;
+        --accent: #e07b50;
+        --canvas-bg: #2b2b28;
+      }
+    }
+    * { box-sizing: border-box; }
+    body {
+      font-family: Georgia, 'Times New Roman', serif;
+      background: var(--bg);
+      color: var(--text);
+      max-width: 72em;
+      margin: 0 auto;
+      padding: 0 1.25em 3em;
+    }
+    h1 { font-size: 1.5em; font-weight: normal; margin: 1em 0 0.2em; }
+    h1 small { font-size: 0.6em; color: var(--muted); }
+    .intro { font-size: 0.85em; color: var(--muted); margin: 0 0 1.2em; max-width: 48em; }
+    .intro a { color: var(--accent); }
+
+    .panels { display: flex; gap: 1em; flex-wrap: wrap; }
+    .panel { flex: 1 1 20em; min-width: 16em; }
+    .panel h2 {
+      font-size: 0.8em; font-weight: normal; text-transform: uppercase;
+      letter-spacing: 0.08em; color: var(--muted); margin: 0 0 0.4em;
+    }
+    .panel canvas {
+      width: 100%; aspect-ratio: 1 / 1; display: block;
+      background: var(--canvas-bg);
+      border: 1px solid var(--border);
+    }
+    #sourceCanvas { cursor: grab; touch-action: none; }
+    #resultCanvas { cursor: zoom-in; }
+    .panel .hint { font-size: 0.72em; color: var(--muted); margin-top: 0.35em; min-height: 1.2em; }
+
+    .controls {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(16em, 1fr));
+      gap: 0.8em; margin-top: 1.2em;
+    }
+    fieldset {
+      background: var(--panel); border: 1px solid var(--border);
+      padding: 0.7em 0.9em 0.9em; margin: 0;
+    }
+    legend {
+      font-size: 0.75em; text-transform: uppercase; letter-spacing: 0.08em;
+      color: var(--muted); padding: 0 0.4em;
+    }
+    .row { display: flex; align-items: center; gap: 0.5em; margin: 0.45em 0; flex-wrap: wrap; }
+    .row label { font-size: 0.85em; flex: 0 0 8.5em; }
+    .row input[type="range"] { flex: 1 1 6em; min-width: 5em; accent-color: var(--accent); }
+    .row .val { font-size: 0.8em; color: var(--muted); min-width: 2.6em; text-align: right; font-variant-numeric: tabular-nums; }
+    .row select, .row input[type="number"] {
+      font: inherit; font-size: 0.85em; background: var(--bg); color: var(--text);
+      border: 1px solid var(--border); padding: 0.15em 0.3em;
+    }
+    .row select { max-width: 11em; }
+    .row input[type="number"] { width: 7.5em; }
+    .row input[type="color"] { width: 2.2em; height: 1.5em; padding: 0; border: 1px solid var(--border); background: none; }
+    button {
+      font: inherit; font-size: 0.85em; cursor: pointer;
+      background: var(--panel); color: var(--text);
+      border: 1px solid var(--border); padding: 0.3em 0.8em;
+    }
+    button:hover { border-color: var(--accent); color: var(--accent); }
+    button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+    button.primary:hover { opacity: 0.9; color: #fff; }
+    input[type="file"] { display: none; }
+    #status { font-size: 0.8em; color: var(--muted); margin-top: 0.8em; min-height: 1.2em; }
+
+    .overlay {
+      display: none; position: fixed; inset: 0; z-index: 10;
+      background: rgba(0, 0, 0, 0.85);
+      justify-content: center; align-items: center; flex-direction: column; gap: 1em;
+    }
+    .overlay.open { display: flex; }
+    .overlay canvas, .overlay video { max-width: 90vmin; max-height: 80vh; border: 1px solid var(--border); }
+    .overlay .bar { display: flex; gap: 0.8em; }
+    .overlay button { background: #222; color: #eee; }
+
+    footer { font-size: 0.72em; color: var(--muted); margin-top: 2em; max-width: 48em; }
+    footer a { color: var(--accent); }
+  </style>
+</head>
+<body>
+  <h1>Struycken Image Processor <small>index4</small></h1>
+  <p class="intro">
+    Turn a photo, webcam capture, or upload into a Struycken point pattern using the faithful
+    Technisch Procédé engine. Every result is reproducible from its seed.
+    See <a href="index3.html">index3</a> for the annotated reference version with self-tests
+    and invariant checks.
+  </p>
+
+  <div class="panels">
+    <div class="panel">
+      <h2>Source (drag to pan, scroll to zoom)</h2>
+      <canvas id="sourceCanvas"></canvas>
+      <div class="hint">The square crop is what gets processed.</div>
+    </div>
+    <div class="panel">
+      <h2>Result (click to enlarge)</h2>
+      <canvas id="resultCanvas"></canvas>
+      <div class="hint" id="resultHint"></div>
+    </div>
+  </div>
+
+  <div class="controls">
+    <fieldset>
+      <legend>Image</legend>
+      <div class="row">
+        <button id="uploadBtn">Upload…</button>
+        <button id="webcamBtn">Webcam</button>
+        <button id="sampleBtn">Sample</button>
+        <button id="resetViewBtn">Reset crop</button>
+        <input type="file" id="fileInput" accept="image/*">
+      </div>
+      <div class="row">
+        <label for="brightness">Brightness</label>
+        <input type="range" id="brightness" min="-100" max="100" value="0" step="1">
+        <span class="val" id="brightnessVal">0</span>
+      </div>
+      <div class="row">
+        <label for="contrast">Contrast</label>
+        <input type="range" id="contrast" min="0" max="2" value="1" step="0.05">
+        <span class="val" id="contrastVal">1.00</span>
+      </div>
+      <div class="row">
+        <label for="gamma">Gamma</label>
+        <input type="range" id="gamma" min="0.3" max="2.5" value="1" step="0.05">
+        <span class="val" id="gammaVal">1.00</span>
+      </div>
+      <div class="row">
+        <label for="invert">Invert</label>
+        <input type="checkbox" id="invert">
+      </div>
+      <div class="row" style="font-size:0.75em;color:var(--muted)">
+        You can also drop or paste an image anywhere on the page.
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Algorithm</legend>
+      <div class="row">
+        <label for="gridSize">Grid</label>
+        <select id="gridSize">
+          <option>64</option>
+          <option>80</option>
+          <option>90</option>
+          <option>100</option>
+          <option selected>128</option>
+          <option>160</option>
+          <option>192</option>
+          <option>256</option>
+        </select>
+      </div>
+      <div class="row">
+        <label for="iterations">Iterations</label>
+        <input type="range" id="iterations" min="0" max="60" value="20" step="1">
+        <span class="val" id="iterationsVal">20</span>
+      </div>
+      <div class="row">
+        <label for="maxSteps">Max places</label>
+        <input type="range" id="maxSteps" min="0" max="8" value="3" step="1">
+        <span class="val" id="maxStepsVal">3</span>
+      </div>
+      <div class="row">
+        <label for="subdivisions">Places per cell</label>
+        <select id="subdivisions">
+          <option>1</option>
+          <option>2</option>
+          <option selected>4</option>
+          <option>8</option>
+        </select>
+      </div>
+      <div class="row">
+        <label for="territory">Territory</label>
+        <input type="range" id="territory" min="0.2" max="1" value="0.8" step="0.05">
+        <span class="val" id="territoryVal">0.80</span>
+      </div>
+      <div class="row">
+        <label for="directions">Die faces</label>
+        <select id="directions">
+          <option value="4" selected>4</option>
+          <option value="8">8</option>
+        </select>
+      </div>
+      <div class="row">
+        <label for="seed">Seed</label>
+        <input type="number" id="seed" value="1981" step="1">
+        <button id="rerollBtn" title="New random seed">🎲</button>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Appearance</legend>
+      <div class="row">
+        <label for="dotRadius">Dot radius</label>
+        <input type="range" id="dotRadius" min="0.1" max="0.6" value="0.35" step="0.01">
+        <span class="val" id="dotRadiusVal">0.35</span>
+      </div>
+      <div class="row">
+        <label for="dotColor">Ink color</label>
+        <input type="color" id="dotColor" value="#1d1d1b">
+        <span style="font-size:0.75em;color:var(--muted)">paper adjusts automatically</span>
+      </div>
+      <div class="row">
+        <label for="presetSelect">Presets</label>
+        <select id="presetSelect">
+          <option value="">—</option>
+        </select>
+        <button id="presetBtn">Save</button>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Actions</legend>
+      <div class="row">
+        <label for="autoProcess">Auto process</label>
+        <input type="checkbox" id="autoProcess" checked>
+        <button id="processBtn" class="primary">Process</button>
+      </div>
+      <div class="row">
+        <button id="pngBtn">Save PNG 4096</button>
+        <button id="svgBtn">SVG</button>
+        <button id="linkBtn" title="Copy a URL that reproduces this exact result">Copy link</button>
+      </div>
+    </fieldset>
+  </div>
+
+  <div id="status">Loading…</div>
+
+  <div class="overlay" id="largeOverlay">
+    <canvas id="largeCanvas"></canvas>
+    <div class="bar"><button id="closeLargeBtn">Close (Esc)</button></div>
+  </div>
+
+  <div class="overlay" id="webcamOverlay">
+    <video id="webcamVideo" autoplay playsinline></video>
+    <div class="bar">
+      <button id="captureBtn">Capture</button>
+      <button id="cancelWebcamBtn">Cancel (Esc)</button>
+    </div>
+  </div>
+
+  <footer>
+    Algorithm after Peter Struycken, F.C.A. Groen and P.W. Verbeek (TH Delft, 1981), as described by
+    <a href="https://kalden.home.xs4all.nl/stru/struycken-nl.htm" target="_blank" rel="noopener">Paul Hefting</a>.
+    Engine: <code>js/struycken-core.js</code>, tested via <code>npm test</code>.
+  </footer>
+
+  <script src="js/struycken-core.js"></script>
+  <script>
+    const core = window.StruyckenCore;
+    const dpr = Math.min(window.devicePixelRatio || 1, 3);
+    const PRESET_KEY = 'struyckenator4Presets';
+
+    // --- state --------------------------------------------------------------
+    const params = {
+      grid: 128, iterations: 20, maxSteps: 3, subdivisions: 4, territory: 0.8,
+      directions: 4, seed: 1981,
+      brightness: 0, contrast: 1, gamma: 1, invert: false,
+      dotRadius: 0.35, dotColor: '#1d1d1b'
+    };
+    const state = {
+      image: null,                    // HTMLImageElement or canvas
+      view: { x: 0, y: 0, size: 0 }, // square crop rect in image coords
+      darkness: null,
+      points: [],
+      paperColor: '#f4f1ea'
+    };
+
+    const $ = id => document.getElementById(id);
+    const sourceCanvas = $('sourceCanvas');
+    const resultCanvas = $('resultCanvas');
+    const statusEl = $('status');
+
+    function setStatus(text) { statusEl.textContent = text; }
+
+    function imageSize(img) {
+      return { w: img.naturalWidth || img.width, h: img.naturalHeight || img.height };
+    }
+
+    function fitCanvas(canvas) {
+      const side = Math.max(1, Math.round(canvas.clientWidth * dpr));
+      if (canvas.width !== side) { canvas.width = side; canvas.height = side; }
+    }
+
+    // Paper is 95% white mixed with 5% ink color, floored at 240 (index2's rule).
+    function paperFromInk(hex) {
+      const channel = i => parseInt(hex.slice(1 + i * 2, 3 + i * 2), 16);
+      const mix = i => Math.max(240, Math.round(channel(i) * 0.05 + 255 * 0.95));
+      return 'rgb(' + mix(0) + ', ' + mix(1) + ', ' + mix(2) + ')';
+    }
+
+    // --- source view: crop, pan, zoom ----------------------------------------
+    function clampView() {
+      const { w, h } = imageSize(state.image);
+      const maxSize = Math.min(w, h);
+      state.view.size = Math.min(Math.max(16, state.view.size), maxSize);
+      state.view.x = Math.min(Math.max(0, state.view.x), w - state.view.size);
+      state.view.y = Math.min(Math.max(0, state.view.y), h - state.view.size);
+    }
+
+    function resetView() {
+      if (!state.image) return;
+      const { w, h } = imageSize(state.image);
+      const size = Math.min(w, h);
+      state.view = { x: (w - size) / 2, y: (h - size) / 2, size };
+    }
+
+    function drawSource() {
+      if (!state.image) return;
+      fitCanvas(sourceCanvas);
+      const ctx = sourceCanvas.getContext('2d');
+      ctx.imageSmoothingQuality = 'high';
+      ctx.clearRect(0, 0, sourceCanvas.width, sourceCanvas.height);
+      ctx.drawImage(state.image,
+        state.view.x, state.view.y, state.view.size, state.view.size,
+        0, 0, sourceCanvas.width, sourceCanvas.height);
+    }
+
+    let dragging = false, lastX = 0, lastY = 0;
+    sourceCanvas.addEventListener('pointerdown', e => {
+      if (!state.image) return;
+      dragging = true;
+      lastX = e.clientX; lastY = e.clientY;
+      sourceCanvas.setPointerCapture(e.pointerId);
+      sourceCanvas.style.cursor = 'grabbing';
+    });
+    sourceCanvas.addEventListener('pointermove', e => {
+      if (!dragging) return;
+      const perPx = state.view.size / sourceCanvas.clientWidth;
+      state.view.x -= (e.clientX - lastX) * perPx;
+      state.view.y -= (e.clientY - lastY) * perPx;
+      lastX = e.clientX; lastY = e.clientY;
+      clampView();
+      drawSource();
+      schedule('sample');
+    });
+    const endDrag = () => { dragging = false; sourceCanvas.style.cursor = 'grab'; };
+    sourceCanvas.addEventListener('pointerup', endDrag);
+    sourceCanvas.addEventListener('pointercancel', endDrag);
+    sourceCanvas.addEventListener('wheel', e => {
+      if (!state.image) return;
+      e.preventDefault();
+      const rect = sourceCanvas.getBoundingClientRect();
+      const fx = (e.clientX - rect.left) / rect.width;
+      const fy = (e.clientY - rect.top) / rect.height;
+      const factor = e.deltaY > 0 ? 1.1 : 1 / 1.1;
+      const newSize = state.view.size * factor;
+      state.view.x += fx * (state.view.size - newSize);
+      state.view.y += fy * (state.view.size - newSize);
+      state.view.size = newSize;
+      clampView();
+      drawSource();
+      schedule('sample');
+    }, { passive: false });
+
+    // --- pipeline -------------------------------------------------------------
+    function resample() {
+      if (!state.image) return;
+      const n = params.grid;
+      const tmp = document.createElement('canvas');
+      tmp.width = n; tmp.height = n;
+      const ctx = tmp.getContext('2d', { willReadFrequently: true });
+      ctx.imageSmoothingQuality = 'high';
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, n, n);
+      ctx.drawImage(state.image,
+        state.view.x, state.view.y, state.view.size, state.view.size, 0, 0, n, n);
+      state.darkness = core.rgbaToDarkness(ctx.getImageData(0, 0, n, n).data, n * n, {
+        brightness: params.brightness, contrast: params.contrast,
+        gamma: params.gamma, invert: params.invert
+      });
+    }
+
+    function process() {
+      if (!state.darkness) return;
+      const t0 = performance.now();
+      const placed = core.placePoints(state.darkness, params.grid);
+      state.points = core.shakePoints(placed, params.grid, {
+        iterations: params.iterations, maxSteps: params.maxSteps,
+        subdivisions: params.subdivisions, minDistance: params.territory,
+        directions: params.directions, rng: core.createRng(params.seed)
+      });
+      renderResult();
+      setStatus(state.points.length + ' dots · ' + params.iterations +
+        ' iterations · seed ' + params.seed + ' · ' +
+        (performance.now() - t0).toFixed(0) + ' ms');
+    }
+
+    function renderResult() {
+      state.paperColor = paperFromInk(params.dotColor);
+      fitCanvas(resultCanvas);
+      core.renderPoints(resultCanvas.getContext('2d'), state.points, {
+        gridSize: params.grid, width: resultCanvas.width,
+        dotRadius: params.dotRadius, dotColor: params.dotColor,
+        background: state.paperColor
+      });
+      $('resultHint').textContent = state.points.length + ' dots';
+    }
+
+    // Debounced scheduler: 'sample' redoes sampling + processing,
+    // 'process' only the two phases, 'render' only redraws.
+    let timer = null, pendingSample = false;
+    function schedule(kind) {
+      if (kind === 'render') { renderResult(); return; }
+      pendingSample = pendingSample || kind === 'sample';
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        if (pendingSample) resample();
+        pendingSample = false;
+        if ($('autoProcess').checked) process();
+        else setStatus('Changed — press Process.');
+      }, 150);
+    }
+
+    // --- controls -------------------------------------------------------------
+    function bindRange(id, key, kind, fmt) {
+      $(id).addEventListener('input', () => {
+        params[key] = parseFloat($(id).value);
+        const valEl = $(id + 'Val');
+        if (valEl) valEl.textContent = fmt ? fmt(params[key]) : $(id).value;
+        schedule(kind);
+      });
+    }
+    bindRange('brightness', 'brightness', 'sample');
+    bindRange('contrast', 'contrast', 'sample', v => v.toFixed(2));
+    bindRange('gamma', 'gamma', 'sample', v => v.toFixed(2));
+    bindRange('iterations', 'iterations', 'process');
+    bindRange('maxSteps', 'maxSteps', 'process');
+    bindRange('territory', 'territory', 'process', v => v.toFixed(2));
+    bindRange('dotRadius', 'dotRadius', 'render', v => v.toFixed(2));
+
+    $('invert').addEventListener('change', e => { params.invert = e.target.checked; schedule('sample'); });
+    $('gridSize').addEventListener('change', e => { params.grid = parseInt(e.target.value, 10); schedule('sample'); });
+    $('subdivisions').addEventListener('change', e => { params.subdivisions = parseInt(e.target.value, 10); schedule('process'); });
+    $('directions').addEventListener('change', e => { params.directions = parseInt(e.target.value, 10); schedule('process'); });
+    $('seed').addEventListener('change', e => { params.seed = parseInt(e.target.value, 10) || 0; schedule('process'); });
+    $('rerollBtn').addEventListener('click', () => {
+      params.seed = Math.floor(Math.random() * 2 ** 31);
+      $('seed').value = params.seed;
+      schedule('process');
+    });
+    $('dotColor').addEventListener('input', e => { params.dotColor = e.target.value; schedule('render'); });
+    $('processBtn').addEventListener('click', () => { resample(); process(); });
+    $('resetViewBtn').addEventListener('click', () => { resetView(); drawSource(); schedule('sample'); });
+
+    // Push current params into every control widget (hash load, preset load).
+    function syncControls() {
+      $('gridSize').value = params.grid;
+      $('iterations').value = params.iterations; $('iterationsVal').textContent = params.iterations;
+      $('maxSteps').value = params.maxSteps; $('maxStepsVal').textContent = params.maxSteps;
+      $('subdivisions').value = params.subdivisions;
+      $('territory').value = params.territory; $('territoryVal').textContent = params.territory.toFixed(2);
+      $('directions').value = params.directions;
+      $('seed').value = params.seed;
+      $('brightness').value = params.brightness; $('brightnessVal').textContent = params.brightness;
+      $('contrast').value = params.contrast; $('contrastVal').textContent = params.contrast.toFixed(2);
+      $('gamma').value = params.gamma; $('gammaVal').textContent = params.gamma.toFixed(2);
+      $('invert').checked = params.invert;
+      $('dotRadius').value = params.dotRadius; $('dotRadiusVal').textContent = params.dotRadius.toFixed(2);
+      $('dotColor').value = params.dotColor;
+    }
+
+    // --- presets (localStorage, index2 lineage) ----------------------------------
+    let presets = {};
+    try { presets = JSON.parse(localStorage.getItem(PRESET_KEY)) || {}; } catch { presets = {}; }
+
+    function refreshPresetOptions() {
+      const select = $('presetSelect');
+      while (select.options.length > 1) select.remove(1);
+      Object.keys(presets).sort().forEach(name => select.add(new Option(name, name)));
+    }
+
+    $('presetSelect').addEventListener('change', () => {
+      const name = $('presetSelect').value;
+      $('presetBtn').textContent = name ? 'Remove' : 'Save';
+      if (!name) return;
+      Object.assign(params, presets[name]);
+      syncControls();
+      schedule('sample');
+      setStatus('Preset "' + name + '" loaded.');
+    });
+
+    $('presetBtn').addEventListener('click', () => {
+      const selected = $('presetSelect').value;
+      if (selected) {
+        if (!confirm('Remove preset "' + selected + '"?')) return;
+        delete presets[selected];
+        $('presetSelect').selectedIndex = 0;
+        $('presetBtn').textContent = 'Save';
+        setStatus('Preset "' + selected + '" removed.');
+      } else {
+        const name = (prompt('Name for this preset:') || '').trim();
+        if (!name) return;
+        presets[name] = { ...params };
+        setStatus('Preset "' + name + '" saved.');
+      }
+      localStorage.setItem(PRESET_KEY, JSON.stringify(presets));
+      refreshPresetOptions();
+    });
+
+    // --- image loading ----------------------------------------------------------
+    function setImage(img) {
+      state.image = img;
+      resetView();
+      drawSource();
+      resample();
+      process();
+    }
+
+    function loadFile(file) {
+      if (!file || !file.type.startsWith('image/')) return;
+      const img = new Image();
+      img.onload = () => { URL.revokeObjectURL(img.src); setImage(img); };
+      img.src = URL.createObjectURL(file);
+    }
+
+    $('uploadBtn').addEventListener('click', () => $('fileInput').click());
+    $('fileInput').addEventListener('change', e => loadFile(e.target.files[0]));
+    window.addEventListener('dragover', e => e.preventDefault());
+    window.addEventListener('drop', e => { e.preventDefault(); loadFile(e.dataTransfer.files[0]); });
+    window.addEventListener('paste', e => {
+      const item = [...(e.clipboardData?.items || [])].find(i => i.type.startsWith('image/'));
+      if (item) loadFile(item.getAsFile());
+    });
+
+    function makeSample() {
+      const s = 512;
+      const c = document.createElement('canvas');
+      c.width = s; c.height = s;
+      const ctx = c.getContext('2d');
+      const bg = ctx.createLinearGradient(0, 0, s, s);
+      bg.addColorStop(0, '#f2f2f2');
+      bg.addColorStop(1, '#9a9a9a');
+      ctx.fillStyle = bg;
+      ctx.fillRect(0, 0, s, s);
+      const sphere = ctx.createRadialGradient(s * 0.42, s * 0.38, s * 0.04, s * 0.5, s * 0.46, s * 0.34);
+      sphere.addColorStop(0, '#ffffff');
+      sphere.addColorStop(0.55, '#6f6f6f');
+      sphere.addColorStop(1, '#101010');
+      ctx.fillStyle = sphere;
+      ctx.beginPath();
+      ctx.arc(s * 0.5, s * 0.46, s * 0.34, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#141414';
+      ctx.fillRect(s * 0.08, s * 0.86, s * 0.84, s * 0.05);
+      return c;
+    }
+    $('sampleBtn').addEventListener('click', () => setImage(makeSample()));
+
+    // --- webcam -----------------------------------------------------------------
+    let webcamStream = null;
+    $('webcamBtn').addEventListener('click', async () => {
+      try {
+        webcamStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' } });
+        $('webcamVideo').srcObject = webcamStream;
+        $('webcamOverlay').classList.add('open');
+      } catch {
+        setStatus('Webcam unavailable or permission denied.');
+      }
+    });
+    function stopWebcam() {
+      webcamStream?.getTracks().forEach(t => t.stop());
+      webcamStream = null;
+      $('webcamVideo').srcObject = null;
+      $('webcamOverlay').classList.remove('open');
+    }
+    $('captureBtn').addEventListener('click', () => {
+      const video = $('webcamVideo');
+      if (!video.videoWidth) return; // stream not ready yet
+      const c = document.createElement('canvas');
+      c.width = video.videoWidth; c.height = video.videoHeight;
+      c.getContext('2d').drawImage(video, 0, 0);
+      stopWebcam();
+      setImage(c);
+    });
+    $('cancelWebcamBtn').addEventListener('click', stopWebcam);
+
+    // --- large view ----------------------------------------------------------------
+    resultCanvas.addEventListener('click', () => {
+      if (!state.points.length) return;
+      const side = Math.floor(Math.min(window.innerWidth, window.innerHeight) * 0.9);
+      const canvas = $('largeCanvas');
+      canvas.width = side * dpr; canvas.height = side * dpr;
+      canvas.style.width = side + 'px'; canvas.style.height = side + 'px';
+      core.renderPoints(canvas.getContext('2d'), state.points, {
+        gridSize: params.grid, width: canvas.width,
+        dotRadius: params.dotRadius, dotColor: params.dotColor, background: state.paperColor
+      });
+      $('largeOverlay').classList.add('open');
+    });
+    $('closeLargeBtn').addEventListener('click', () => $('largeOverlay').classList.remove('open'));
+    $('largeOverlay').addEventListener('click', e => {
+      if (e.target === $('largeOverlay')) $('largeOverlay').classList.remove('open');
+    });
+    window.addEventListener('keydown', e => {
+      if (e.key !== 'Escape') return;
+      $('largeOverlay').classList.remove('open');
+      if (webcamStream) stopWebcam();
+    });
+
+    // --- export ---------------------------------------------------------------------
+    function download(name, blob) {
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = name;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+    }
+    $('pngBtn').addEventListener('click', () => {
+      if (!state.points.length) return;
+      const c = document.createElement('canvas');
+      c.width = c.height = 4096;
+      core.renderPoints(c.getContext('2d'), state.points, {
+        gridSize: params.grid, width: 4096,
+        dotRadius: params.dotRadius, dotColor: params.dotColor, background: state.paperColor
+      });
+      c.toBlob(blob => download('struycken-' + params.seed + '-4096.png', blob));
+    });
+    $('svgBtn').addEventListener('click', () => {
+      if (!state.points.length) return;
+      const svg = core.pointsToSVG(state.points, {
+        gridSize: params.grid, size: 2048, dotRadius: params.dotRadius,
+        dotColor: params.dotColor, background: state.paperColor
+      });
+      download('struycken-' + params.seed + '.svg', new Blob([svg], { type: 'image/svg+xml' }));
+    });
+
+    // --- shareable URL ------------------------------------------------------------------
+    const HASH_KEYS = ['grid', 'iterations', 'maxSteps', 'subdivisions', 'territory',
+      'directions', 'seed', 'brightness', 'contrast', 'gamma', 'invert', 'dotRadius', 'dotColor'];
+    function paramsToHash() {
+      const q = new URLSearchParams();
+      HASH_KEYS.forEach(k => q.set(k, typeof params[k] === 'boolean' ? (params[k] ? 1 : 0) : params[k]));
+      return '#' + q.toString();
+    }
+    function applyHash() {
+      if (location.hash.length < 2) return;
+      const q = new URLSearchParams(location.hash.slice(1));
+      HASH_KEYS.forEach(k => {
+        if (!q.has(k)) return;
+        const raw = q.get(k);
+        if (k === 'invert') params[k] = raw === '1';
+        else if (k === 'dotColor') params[k] = raw;
+        else params[k] = parseFloat(raw);
+      });
+      syncControls();
+    }
+    $('linkBtn').addEventListener('click', async () => {
+      history.replaceState(null, '', paramsToHash());
+      try {
+        await navigator.clipboard.writeText(location.href);
+        setStatus('Link copied — same seed and settings reproduce this exact pattern.');
+      } catch {
+        setStatus('Link is in the address bar (clipboard blocked).');
+      }
+    });
+
+    // --- boot ------------------------------------------------------------------------------
+    window.addEventListener('resize', () => {
+      drawSource();
+      if (state.points.length) renderResult();
+    });
+    applyHash();
+    refreshPresetOptions();
+    setImage(makeSample());
+  </script>
+</body>
+</html>
