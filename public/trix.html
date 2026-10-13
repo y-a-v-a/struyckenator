@@ -1,0 +1,1072 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Trix — dot portrait machine</title>
+</head>
+<body>
+  <p>Trix is being assembled…</p>
+
+  <!--
+    TrixCore: the dot engine. Pure functions, no DOM access.
+    The very same text runs in the page, inside a Web Worker (spawned from this
+    script's source) and in the Node test-suite (tests/ extracts it from here).
+  -->
+  <script id="trix-core">
+(function (root) {
+  'use strict';
+
+  /* ------------------------------------------------------------------ *
+   *  Deterministic randomness — every portrait is reproducible from    *
+   *  its seed, which can be any word (a name makes a "plate number").  *
+   * ------------------------------------------------------------------ */
+
+  /** FNV-1a 32-bit hash, used to turn seed words into numbers. */
+  function hashString(text) {
+    let hash = 0x811c9dc5;
+    for (let i = 0; i < text.length; i++) {
+      hash ^= text.charCodeAt(i);
+      hash = Math.imul(hash, 0x01000193);
+    }
+    return hash >>> 0;
+  }
+
+  /** mulberry32: tiny, fast, good enough PRNG returning floats in [0, 1). */
+  function createRng(seed) {
+    let state = (typeof seed === 'number' ? seed : hashString(String(seed))) >>> 0;
+    return function nextRandom() {
+      state = (state + 0x6d2b79f5) | 0;
+      let t = Math.imul(state ^ (state >>> 15), 1 | state);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+
+  function shuffleInPlace(array, rng) {
+    for (let i = array.length - 1; i > 0; i--) {
+      const j = Math.floor(rng() * (i + 1));
+      const tmp = array[i];
+      array[i] = array[j];
+      array[j] = tmp;
+    }
+    return array;
+  }
+
+  const clamp = (value, min, max) => (value < min ? min : value > max ? max : value);
+  const clamp01 = value => (value < 0 ? 0 : value > 1 ? 1 : value);
+
+  function smoothstep(edge0, edge1, x) {
+    if (edge1 === edge0) return x < edge0 ? 0 : 1;
+    const t = clamp01((x - edge0) / (edge1 - edge0));
+    return t * t * (3 - 2 * t);
+  }
+
+  /* ------------------------------------------------------------------ *
+   *  Image → tone                                                      *
+   * ------------------------------------------------------------------ */
+
+  /** Rec.601 luminance in [0, 1]; transparent pixels count as white paper. */
+  function rgbaToLuminance(rgba, count) {
+    const out = new Float32Array(count);
+    for (let i = 0, p = 0; i < count; i++, p += 4) {
+      const alpha = rgba[p + 3] / 255;
+      const lum = (0.299 * rgba[p] + 0.587 * rgba[p + 1] + 0.114 * rgba[p + 2]) / 255;
+      out[i] = lum * alpha + (1 - alpha);
+    }
+    return out;
+  }
+
+  /** One colour channel (0 = red, 1 = green, 2 = blue) in [0, 1]. */
+  function rgbaToChannel(rgba, count, channel) {
+    const out = new Float32Array(count);
+    for (let i = 0, p = 0; i < count; i++, p += 4) {
+      const alpha = rgba[p + 3] / 255;
+      out[i] = (rgba[p + channel] / 255) * alpha + (1 - alpha);
+    }
+    return out;
+  }
+
+  /** One running-sum box blur pass with clamp-to-edge borders. */
+  function boxBlurPass(src, dst, width, height, radius, horizontal) {
+    const norm = 1 / (2 * radius + 1);
+    const lines = horizontal ? height : width;
+    const length = horizontal ? width : height;
+    const stride = horizontal ? 1 : width;
+    for (let line = 0; line < lines; line++) {
+      const base = horizontal ? line * width : line;
+      let acc = 0;
+      for (let k = -radius; k <= radius; k++) {
+        acc += src[base + clamp(k, 0, length - 1) * stride];
+      }
+      for (let i = 0; i < length; i++) {
+        dst[base + i * stride] = acc * norm;
+        const addIndex = Math.min(length - 1, i + radius + 1);
+        const subIndex = Math.max(0, i - radius);
+        acc += src[base + addIndex * stride] - src[base + subIndex * stride];
+      }
+    }
+  }
+
+  /** Box radii whose three passes approximate a gaussian of the given sigma. */
+  function boxRadiiForSigma(sigma, passes) {
+    const ideal = Math.sqrt((12 * sigma * sigma) / passes + 1);
+    let lower = Math.floor(ideal);
+    if (lower % 2 === 0) lower--;
+    const upper = lower + 2;
+    const split = Math.round(
+      (12 * sigma * sigma - passes * lower * lower - 4 * passes * lower - 3 * passes) / (-4 * lower - 4)
+    );
+    const radii = [];
+    for (let i = 0; i < passes; i++) radii.push(((i < split ? lower : upper) - 1) / 2);
+    return radii;
+  }
+
+  /** Fast gaussian blur approximation (three box passes per axis). */
+  function blur(src, width, height, sigma) {
+    let a = Float32Array.from(src);
+    if (!(sigma > 0)) return a;
+    let b = new Float32Array(a.length);
+    for (const radius of boxRadiiForSigma(sigma, 3)) {
+      if (radius < 1) continue;
+      boxBlurPass(a, b, width, height, radius, true);
+      boxBlurPass(b, a, width, height, radius, false);
+    }
+    return a;
+  }
+
+  /** p-th quantile (0..1) of a list of values. */
+  function quantile(values, p) {
+    const sorted = Float32Array.from(values).sort();
+    if (!sorted.length) return 0;
+    return sorted[clamp(Math.round(p * (sorted.length - 1)), 0, sorted.length - 1)];
+  }
+
+  const TONE_DEFAULTS = {
+    autoLevels: true,     // stretch the 0.5% / 99.5% quantiles to black / white
+    black: 0,             // manual levels on top of the auto stretch
+    white: 1,
+    brightness: 0,        // -1 .. 1
+    contrast: 1,          // 0 .. 3, linear around middle grey
+    gamma: 1,             // > 1 opens up the midtones, < 1 darkens them
+    clarity: 0,           // large-radius local contrast
+    sharpen: 0,           // unsharp mask amount
+    sharpenRadius: 1,     // in cells
+    invert: false,
+    ink: 1,               // dot economy: scales the darkness that becomes dots
+    fade: 0,              // 0 .. 1 strength of the oval background fade
+    fadeX: 0.5,           // oval centre, fraction of width
+    fadeY: 0.45,          // oval centre, fraction of height
+    fadeRadius: 0.48,     // oval half-width as a fraction of the width
+    fadeAspect: 0.8,      // width / height of the oval
+    fadeSoftness: 0.45    // fraction of the radius used for the fall-off
+  };
+
+  /** 1 inside the portrait oval, fading smoothly to 0 outside it. */
+  function ovalMask(width, height, options) {
+    const o = Object.assign({}, TONE_DEFAULTS, options);
+    const mask = new Float32Array(width * height);
+    const rx = Math.max(1e-3, o.fadeRadius * width);
+    const ry = rx / Math.max(0.05, o.fadeAspect);
+    const cx = o.fadeX * width;
+    const cy = o.fadeY * height;
+    const inner = 1 - clamp01(o.fadeSoftness);
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        const dx = (x + 0.5 - cx) / rx;
+        const dy = (y + 0.5 - cy) / ry;
+        const e = Math.sqrt(dx * dx + dy * dy);
+        mask[y * width + x] = 1 - smoothstep(inner, 1, e);
+      }
+    }
+    return mask;
+  }
+
+  /**
+   * Turn luminance (1 = white) into darkness/density (1 = a dot in every cell).
+   * Order: levels → brightness/contrast → gamma → local contrast → invert →
+   * background fade → ink economy.
+   */
+  function toneMap(lum, width, height, options) {
+    const o = Object.assign({}, TONE_DEFAULTS, options);
+    const count = width * height;
+    const v = new Float32Array(count);
+
+    let lo = 0;
+    let hi = 1;
+    if (o.autoLevels) {
+      lo = quantile(lum, 0.005);
+      hi = quantile(lum, 0.995);
+      if (hi - lo < 0.02) { lo = 0; hi = 1; }
+    }
+    const black = clamp(o.black, 0, 0.98);
+    const white = clamp(o.white, black + 0.01, 1);
+    const gammaExp = 1 / clamp(o.gamma, 0.05, 20);
+    for (let i = 0; i < count; i++) {
+      let x = (lum[i] - lo) / (hi - lo);
+      x = (x - black) / (white - black);
+      x = (x - 0.5) * o.contrast + 0.5 + o.brightness;
+      v[i] = Math.pow(clamp01(x), gammaExp);
+    }
+
+    if (o.clarity) {
+      const wide = blur(v, width, height, Math.max(2, 0.06 * Math.max(width, height)));
+      for (let i = 0; i < count; i++) v[i] += o.clarity * (v[i] - wide[i]);
+    }
+    if (o.sharpen) {
+      const near = blur(v, width, height, Math.max(0.5, o.sharpenRadius));
+      for (let i = 0; i < count; i++) v[i] += o.sharpen * (v[i] - near[i]);
+    }
+
+    const mask = o.fade > 0 ? ovalMask(width, height, o) : null;
+    const ink = clamp(o.ink, 0, 4);
+    const density = new Float32Array(count);
+    for (let i = 0; i < count; i++) {
+      let d = 1 - clamp01(v[i]);
+      if (o.invert) d = 1 - d;
+      if (mask) d *= 1 - o.fade * (1 - mask[i]);
+      density[i] = clamp01(d * ink);
+    }
+    return density;
+  }
+
+  /* ------------------------------------------------------------------ *
+   *  Scan paths — Struycken's meander is one member of a family of     *
+   *  space-filling walks; the walk decides where the carried error     *
+   *  goes and therefore the texture of the first dot pattern.          *
+   * ------------------------------------------------------------------ */
+
+  function serpentinePath(width, height) {
+    const path = new Uint32Array(width * height);
+    let k = 0;
+    for (let y = 0; y < height; y++) {
+      if (y % 2 === 0) for (let x = 0; x < width; x++) path[k++] = y * width + x;
+      else for (let x = width - 1; x >= 0; x--) path[k++] = y * width + x;
+    }
+    return path;
+  }
+
+  function rasterPath(width, height) {
+    const path = new Uint32Array(width * height);
+    for (let i = 0; i < path.length; i++) path[i] = i;
+    return path;
+  }
+
+  /** Boustrophedon over the anti-diagonals: a 45° meander. */
+  function diagonalPath(width, height) {
+    const path = new Uint32Array(width * height);
+    let k = 0;
+    for (let s = 0; s <= width + height - 2; s++) {
+      const xMin = Math.max(0, s - height + 1);
+      const xMax = Math.min(s, width - 1);
+      if (s % 2 === 0) for (let x = xMin; x <= xMax; x++) path[k++] = (s - x) * width + x;
+      else for (let x = xMax; x >= xMin; x--) path[k++] = (s - x) * width + x;
+    }
+    return path;
+  }
+
+  /** Clockwise spiral from the border inwards. */
+  function spiralPath(width, height) {
+    const path = new Uint32Array(width * height);
+    let k = 0;
+    let left = 0, top = 0, right = width - 1, bottom = height - 1;
+    while (left <= right && top <= bottom) {
+      for (let x = left; x <= right; x++) path[k++] = top * width + x;
+      for (let y = top + 1; y <= bottom; y++) path[k++] = y * width + right;
+      if (top < bottom) for (let x = right - 1; x >= left; x--) path[k++] = bottom * width + x;
+      if (left < right) for (let y = bottom - 1; y > top; y--) path[k++] = y * width + left;
+      left++; top++; right--; bottom--;
+    }
+    return path;
+  }
+
+  /**
+   * Generalized Hilbert curve ("gilbert", J. Červený) for any rectangle.
+   * Carrying the error along a Hilbert walk keeps it local in both axes
+   * (cf. Riemersma dithering) instead of smearing it along rows.
+   */
+  function hilbertPath(width, height) {
+    const path = new Uint32Array(width * height);
+    let k = 0;
+    const sign = v => (v > 0) - (v < 0);
+    const half = v => Math.floor(v / 2);
+    function walk(x, y, ax, ay, bx, by) {
+      const w = Math.abs(ax + ay);
+      const h = Math.abs(bx + by);
+      const dax = sign(ax), day = sign(ay);
+      const dbx = sign(bx), dby = sign(by);
+      if (h === 1) {
+        for (let i = 0; i < w; i++) { path[k++] = y * width + x; x += dax; y += day; }
+        return;
+      }
+      if (w === 1) {
+        for (let i = 0; i < h; i++) { path[k++] = y * width + x; x += dbx; y += dby; }
+        return;
+      }
+      let ax2 = half(ax), ay2 = half(ay);
+      let bx2 = half(bx), by2 = half(by);
+      const w2 = Math.abs(ax2 + ay2);
+      const h2 = Math.abs(bx2 + by2);
+      if (2 * w > 3 * h) {
+        if ((w2 % 2) && w > 2) { ax2 += dax; ay2 += day; }
+        walk(x, y, ax2, ay2, bx, by);
+        walk(x + ax2, y + ay2, ax - ax2, ay - ay2, bx, by);
+      } else {
+        if ((h2 % 2) && h > 2) { bx2 += dbx; by2 += dby; }
+        walk(x, y, bx2, by2, ax2, ay2);
+        walk(x + bx2, y + by2, ax, ay, bx - bx2, by - by2);
+        walk(x + (ax - dax) + (bx2 - dbx), y + (ay - day) + (by2 - dby),
+          -bx2, -by2, -(ax - ax2), -(ay - ay2));
+      }
+    }
+    if (width >= height) walk(0, 0, width, 0, 0, height);
+    else walk(0, 0, 0, height, width, 0);
+    return path;
+  }
+
+  /** Visit cells in random order — the counter-example: error carried nowhere useful. */
+  function scatterPath(width, height, rng) {
+    return shuffleInPlace(rasterPath(width, height), rng);
+  }
+
+  const PATHS = {
+    serpentine: serpentinePath,
+    raster: rasterPath,
+    diagonal: diagonalPath,
+    spiral: spiralPath,
+    hilbert: hilbertPath,
+    scatter: scatterPath
+  };
+
+  /**
+   * A scan path in one of the 8 orientations of the square (bit 0 = mirror x,
+   * bit 1 = mirror y, bit 2 = transpose). Colour separations use different
+   * orientations, like the screen angles of a printing press.
+   */
+  function scanPath(kind, width, height, orientation, rng) {
+    const generator = PATHS[kind] || PATHS.serpentine;
+    const transpose = (orientation & 4) !== 0;
+    const flipX = (orientation & 1) !== 0;
+    const flipY = (orientation & 2) !== 0;
+    const pw = transpose ? height : width;
+    const ph = transpose ? width : height;
+    const base = generator(pw, ph, rng || createRng(1));
+    if (!orientation) return base;
+    const out = new Uint32Array(base.length);
+    for (let k = 0; k < base.length; k++) {
+      const px = base[k] % pw;
+      const py = (base[k] / pw) | 0;
+      let x = transpose ? py : px;
+      let y = transpose ? px : py;
+      if (flipX) x = width - 1 - x;
+      if (flipY) y = height - 1 - y;
+      out[k] = y * width + x;
+    }
+    return out;
+  }
+
+  /* ------------------------------------------------------------------ *
+   *  Phase 1 — Struycken's accumulation: walk the path, add each       *
+   *  cell's grey value, drop a dot whenever the sum reaches 255 and    *
+   *  carry the remainder. (40 + 100 + 120 → dot, carry 5.)             *
+   * ------------------------------------------------------------------ */
+
+  function quantize(density, levels) {
+    const out = new Uint16Array(density.length);
+    for (let i = 0; i < density.length; i++) out[i] = Math.round(clamp01(density[i]) * levels);
+    return out;
+  }
+
+  function accumulate(values, path, threshold, initialCarry) {
+    const cells = [];
+    let carry = initialCarry || 0;
+    for (let k = 0; k < path.length; k++) {
+      carry += values[path[k]];
+      if (carry >= threshold) {
+        cells.push(path[k]);
+        carry -= threshold;
+      }
+    }
+    return { cells: Uint32Array.from(cells), carry };
+  }
+
+  /** Dots start at the centres of their cells, in path order. */
+  function cellsToPositions(cells, width) {
+    const positions = new Float32Array(cells.length * 2);
+    for (let i = 0; i < cells.length; i++) {
+      positions[2 * i] = (cells[i] % width) + 0.5;
+      positions[2 * i + 1] = Math.floor(cells[i] / width) + 0.5;
+    }
+    return positions;
+  }
+
+  /* ------------------------------------------------------------------ *
+   *  Phase 2 — shaking the box. Every dot owns a circular territory;   *
+   *  dots take random steps, and a step that would invade another      *
+   *  territory is cancelled. That is precisely a hard-disk Metropolis  *
+   *  Monte Carlo simulation (Metropolis et al., 1953): marbles in a    *
+   *  tray. Trix adds continuous positions, territories that adapt to   *
+   *  the local tone, an optional tether, annealing and relaxation of   *
+   *  the overlaps the first phase leaves behind.                       *
+   * ------------------------------------------------------------------ */
+
+  /**
+   * Territory radius per cell for tone-adaptive mode: a fixed fraction
+   * ("packing") of the local mean dot spacing 1/√density.
+   */
+  function createRadiusField(density, width, height, packing, maxSpacing) {
+    const smooth = blur(density, width, height, 1.2);
+    const spacingCap = maxSpacing || 8;
+    const minDensity = 1 / (spacingCap * spacingCap);
+    const field = new Float32Array(width * height);
+    for (let i = 0; i < field.length; i++) {
+      field[i] = (0.5 * packing) / Math.sqrt(Math.max(minDensity, smooth[i]));
+    }
+    return field;
+  }
+
+  const SHAKE_DEFAULTS = {
+    iterations: 20,     // Struycken used 20 passes over all dots
+    maxStep: 3,         // at most 3 positions per move
+    lattice: false,     // true: integer moves on the cell lattice (1983 rules)
+    attempts: 1,        // tries per dot per pass
+    tether: 0,          // max distance from the original cell (0 = free)
+    anneal: false,      // shrink the step size towards the last pass
+    relax: true,        // allow moves that reduce existing overlaps
+    radius: 0.75,       // fixed territory radius (half the minimum distance)
+    radiusField: null   // per-cell radii (tone-adaptive territories)
+  };
+
+  function shake(positions, options) {
+    const o = Object.assign({}, SHAKE_DEFAULTS, options);
+    const W = o.width;
+    const H = o.height;
+    const n = positions.length / 2;
+    const pos = positions;
+    const home = Float32Array.from(pos);
+    const rng = o.rng || createRng(o.seed === undefined ? 1 : o.seed);
+    const field = o.radiusField;
+    const radiusAt = field
+      ? (x, y) => field[clamp(y | 0, 0, H - 1) * W + clamp(x | 0, 0, W - 1)]
+      : () => o.radius;
+
+    const radius = new Float32Array(n);
+    let maxRadius = 0;
+    for (let i = 0; i < n; i++) {
+      radius[i] = radiusAt(pos[2 * i], pos[2 * i + 1]);
+      if (radius[i] > maxRadius) maxRadius = radius[i];
+    }
+
+    // Uniform grid of doubly linked lists: O(1) moves between buckets.
+    const cellSize = field ? 2 : Math.max(1, 2 * o.radius);
+    const gw = Math.max(1, Math.ceil(W / cellSize));
+    const gh = Math.max(1, Math.ceil(H / cellSize));
+    const head = new Int32Array(gw * gh).fill(-1);
+    const next = new Int32Array(n);
+    const prev = new Int32Array(n);
+    const bucketOf = new Int32Array(n);
+    const bucketIndex = (x, y) =>
+      clamp((y / cellSize) | 0, 0, gh - 1) * gw + clamp((x / cellSize) | 0, 0, gw - 1);
+    const link = (i, b) => {
+      bucketOf[i] = b;
+      prev[i] = -1;
+      next[i] = head[b];
+      if (head[b] >= 0) prev[head[b]] = i;
+      head[b] = i;
+    };
+    const unlink = i => {
+      const b = bucketOf[i];
+      if (prev[i] >= 0) next[prev[i]] = next[i];
+      else head[b] = next[i];
+      if (next[i] >= 0) prev[next[i]] = prev[i];
+    };
+    for (let i = 0; i < n; i++) link(i, bucketIndex(pos[2 * i], pos[2 * i + 1]));
+
+    /** Total depth by which a dot of radius r at (x, y) invades other territories. */
+    function intrusion(self, x, y, r, firstOnly) {
+      const reach = field ? r + Math.min(maxRadius, 1.6 * r + 0.25) : 2 * r;
+      const bx0 = clamp(Math.floor((x - reach) / cellSize), 0, gw - 1);
+      const bx1 = clamp(Math.floor((x + reach) / cellSize), 0, gw - 1);
+      const by0 = clamp(Math.floor((y - reach) / cellSize), 0, gh - 1);
+      const by1 = clamp(Math.floor((y + reach) / cellSize), 0, gh - 1);
+      let total = 0;
+      for (let by = by0; by <= by1; by++) {
+        for (let bx = bx0; bx <= bx1; bx++) {
+          for (let j = head[by * gw + bx]; j >= 0; j = next[j]) {
+            if (j === self) continue;
+            const dx = pos[2 * j] - x;
+            const dy = pos[2 * j + 1] - y;
+            const minDist = r + radius[j];
+            const d2 = dx * dx + dy * dy;
+            if (d2 < minDist * minDist) {
+              const depth = minDist - Math.sqrt(d2);
+              if (firstOnly) return depth;
+              total += depth;
+            }
+          }
+        }
+      }
+      return total;
+    }
+
+    const order = new Uint32Array(n);
+    for (let i = 0; i < n; i++) order[i] = i;
+    const tether2 = o.tether > 0 ? o.tether * o.tether : Infinity;
+    const acceptance = [];
+    if (o.onIteration) o.onIteration(0, pos, 0);
+
+    for (let it = 0; it < o.iterations; it++) {
+      const progress = o.iterations > 1 ? it / (o.iterations - 1) : 0;
+      const step = o.anneal ? o.maxStep * (1 - 0.75 * progress) : o.maxStep;
+      const latticeStep = Math.max(1, Math.round(step));
+      shuffleInPlace(order, rng);
+      let moved = 0;
+      for (let k = 0; k < n; k++) {
+        const i = order[k];
+        const x = pos[2 * i];
+        const y = pos[2 * i + 1];
+        for (let attempt = 0; attempt < o.attempts; attempt++) {
+          let nx, ny;
+          if (o.lattice) {
+            let dx = 0, dy = 0;
+            while (dx === 0 && dy === 0) {
+              dx = Math.floor(rng() * (2 * latticeStep + 1)) - latticeStep;
+              dy = Math.floor(rng() * (2 * latticeStep + 1)) - latticeStep;
+            }
+            nx = x + dx;
+            ny = y + dy;
+          } else {
+            // Multi-scale steps (length = max·u²): long jumps stay possible in
+            // the sparse highlights, while dots packed in the shadows still find
+            // the little free room next to them instead of staying on the grid.
+            const angle = rng() * Math.PI * 2;
+            const u = rng();
+            const length = step * u * u;
+            nx = x + Math.cos(angle) * length;
+            ny = y + Math.sin(angle) * length;
+          }
+          if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
+          if (tether2 !== Infinity) {
+            const hx = nx - home[2 * i];
+            const hy = ny - home[2 * i + 1];
+            if (hx * hx + hy * hy > tether2) continue;
+          }
+          const r = field ? radiusAt(nx, ny) : radius[i];
+          const depth = intrusion(i, nx, ny, r, !o.relax);
+          let accept = depth === 0;
+          if (!accept && o.relax) accept = depth < intrusion(i, x, y, radius[i], false) - 1e-6;
+          if (accept) {
+            pos[2 * i] = nx;
+            pos[2 * i + 1] = ny;
+            radius[i] = r;
+            if (r > maxRadius) maxRadius = r;
+            const b = bucketIndex(nx, ny);
+            if (b !== bucketOf[i]) { unlink(i); link(i, b); }
+            moved++;
+            break;
+          }
+        }
+      }
+      acceptance.push(n ? moved / n : 0);
+      if (o.onIteration) o.onIteration(it + 1, pos, moved);
+    }
+    return { positions: pos, home, radius, acceptance };
+  }
+
+  /* ------------------------------------------------------------------ *
+   *  Analysis helpers (statistics panel and tests)                     *
+   * ------------------------------------------------------------------ */
+
+  /** Bucket points on a grid of cellSize for neighbour queries. */
+  function buildBuckets(pos, width, height, cellSize) {
+    const n = pos.length / 2;
+    const gw = Math.max(1, Math.ceil(width / cellSize));
+    const gh = Math.max(1, Math.ceil(height / cellSize));
+    const head = new Int32Array(gw * gh).fill(-1);
+    const next = new Int32Array(n);
+    for (let i = 0; i < n; i++) {
+      const b = clamp((pos[2 * i + 1] / cellSize) | 0, 0, gh - 1) * gw + clamp((pos[2 * i] / cellSize) | 0, 0, gw - 1);
+      next[i] = head[b];
+      head[b] = i;
+    }
+    return { gw, gh, head, next, cellSize };
+  }
+
+  /** k nearest neighbours of every point (sorted, -1 padded). */
+  function nearestNeighbours(pos, width, height, k) {
+    const n = pos.length / 2;
+    const grid = buildBuckets(pos, width, height, 2);
+    const out = new Int32Array(n * k).fill(-1);
+    const bestD = new Float64Array(k);
+    const bestJ = new Int32Array(k);
+    const maxRing = Math.max(grid.gw, grid.gh);
+    for (let i = 0; i < n; i++) {
+      const x = pos[2 * i];
+      const y = pos[2 * i + 1];
+      const cx = clamp((x / grid.cellSize) | 0, 0, grid.gw - 1);
+      const cy = clamp((y / grid.cellSize) | 0, 0, grid.gh - 1);
+      let found = 0;
+      for (let ring = 0; ring <= maxRing; ring++) {
+        for (let gy = cy - ring; gy <= cy + ring; gy++) {
+          if (gy < 0 || gy >= grid.gh) continue;
+          const edgeRow = gy === cy - ring || gy === cy + ring;
+          for (let gx = cx - ring; gx <= cx + ring; gx += edgeRow ? 1 : 2 * ring || 1) {
+            if (gx < 0 || gx >= grid.gw) continue;
+            for (let j = grid.head[gy * grid.gw + gx]; j >= 0; j = grid.next[j]) {
+              if (j === i) continue;
+              const dx = pos[2 * j] - x;
+              const dy = pos[2 * j + 1] - y;
+              const d = dx * dx + dy * dy;
+              if (found < k || d < bestD[found - 1]) {
+                let slot = found < k ? found++ : k - 1;
+                while (slot > 0 && bestD[slot - 1] > d) {
+                  bestD[slot] = bestD[slot - 1];
+                  bestJ[slot] = bestJ[slot - 1];
+                  slot--;
+                }
+                bestD[slot] = d;
+                bestJ[slot] = j;
+              }
+            }
+          }
+        }
+        const safe = ring * grid.cellSize;
+        if (found === k && bestD[k - 1] <= safe * safe) break;
+      }
+      for (let q = 0; q < found; q++) out[i * k + q] = bestJ[q];
+    }
+    return out;
+  }
+
+  function nearestNeighbourDistances(pos, width, height) {
+    const n = pos.length / 2;
+    const out = new Float32Array(n);
+    if (n < 2) return out;
+    const nn = nearestNeighbours(pos, width, height, 1);
+    for (let i = 0; i < n; i++) {
+      const j = nn[i];
+      out[i] = Math.hypot(pos[2 * j] - pos[2 * i], pos[2 * j + 1] - pos[2 * i + 1]);
+    }
+    return out;
+  }
+
+  /** Fraction of dots still sitting (within tol) on a cell centre — "how visible is the grid". */
+  function latticeAlignment(pos, tolerance) {
+    const tol = tolerance === undefined ? 0.05 : tolerance;
+    const n = pos.length / 2;
+    let aligned = 0;
+    for (let i = 0; i < n; i++) {
+      const fx = pos[2 * i] - Math.floor(pos[2 * i]) - 0.5;
+      const fy = pos[2 * i + 1] - Math.floor(pos[2 * i + 1]) - 0.5;
+      if (Math.abs(fx) < tol && Math.abs(fy) < tol) aligned++;
+    }
+    return n ? aligned / n : 0;
+  }
+
+  /** Dots per cell, bilinearly splatted and blurred: what the eye integrates. */
+  function splatDensity(pos, width, height, sigma) {
+    const grid = new Float32Array(width * height);
+    for (let i = 0; i < pos.length; i += 2) {
+      const fx = pos[i] - 0.5;
+      const fy = pos[i + 1] - 0.5;
+      const x0 = Math.floor(fx), y0 = Math.floor(fy);
+      const tx = fx - x0, ty = fy - y0;
+      const add = (x, y, w) => {
+        if (x >= 0 && y >= 0 && x < width && y < height) grid[y * width + x] += w;
+      };
+      add(x0, y0, (1 - tx) * (1 - ty));
+      add(x0 + 1, y0, tx * (1 - ty));
+      add(x0, y0 + 1, (1 - tx) * ty);
+      add(x0 + 1, y0 + 1, tx * ty);
+    }
+    return sigma > 0 ? blur(grid, width, height, sigma) : grid;
+  }
+
+  function pearson(a, b) {
+    const n = Math.min(a.length, b.length);
+    let ma = 0, mb = 0;
+    for (let i = 0; i < n; i++) { ma += a[i]; mb += b[i]; }
+    ma /= n; mb /= n;
+    let cov = 0, va = 0, vb = 0;
+    for (let i = 0; i < n; i++) {
+      const da = a[i] - ma, db = b[i] - mb;
+      cov += da * db; va += da * da; vb += db * db;
+    }
+    return va && vb ? cov / Math.sqrt(va * vb) : 0;
+  }
+
+  /** Histogram of nearest-neighbour distances (in cells) for the stats panel. */
+  function histogram(values, bins, max) {
+    const out = new Float32Array(bins);
+    for (let i = 0; i < values.length; i++) {
+      const b = Math.floor((values[i] / max) * bins);
+      if (b >= 0 && b < bins) out[b]++;
+    }
+    return out;
+  }
+
+  /* ------------------------------------------------------------------ *
+   *  One-line drawing: a travelling-salesman tour through the dots      *
+   *  (greedy nearest neighbour + 2-opt on k-nearest candidate lists),   *
+   *  so the whole portrait becomes a single plotter stroke.             *
+   * ------------------------------------------------------------------ */
+
+  function tourLength(pos, order, closed) {
+    let total = 0;
+    const n = order.length;
+    for (let i = 0; i < n - 1; i++) {
+      total += Math.hypot(pos[2 * order[i + 1]] - pos[2 * order[i]], pos[2 * order[i + 1] + 1] - pos[2 * order[i] + 1]);
+    }
+    if (closed && n > 1) {
+      total += Math.hypot(pos[2 * order[0]] - pos[2 * order[n - 1]], pos[2 * order[0] + 1] - pos[2 * order[n - 1] + 1]);
+    }
+    return total;
+  }
+
+  function lineTour(pos, width, height, options) {
+    const o = Object.assign({ passes: 6, neighbours: 8, budgetMs: 400 }, options);
+    const n = pos.length / 2;
+    const order = new Int32Array(n);
+    if (n < 4) {
+      for (let i = 0; i < n; i++) order[i] = i;
+      return order;
+    }
+    const now = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
+    const start = now();
+    const dist = (a, b) => Math.hypot(pos[2 * a] - pos[2 * b], pos[2 * a + 1] - pos[2 * b + 1]);
+
+    // Greedy nearest neighbour walk on a bucket grid with removal.
+    const cellSize = 2;
+    const gw = Math.max(1, Math.ceil(width / cellSize));
+    const gh = Math.max(1, Math.ceil(height / cellSize));
+    const head = new Int32Array(gw * gh).fill(-1);
+    const next = new Int32Array(n);
+    const prev = new Int32Array(n);
+    const bucket = new Int32Array(n);
+    for (let i = n - 1; i >= 0; i--) {
+      const b = clamp((pos[2 * i + 1] / cellSize) | 0, 0, gh - 1) * gw + clamp((pos[2 * i] / cellSize) | 0, 0, gw - 1);
+      bucket[i] = b;
+      prev[i] = -1;
+      next[i] = head[b];
+      if (head[b] >= 0) prev[head[b]] = i;
+      head[b] = i;
+    }
+    const remove = i => {
+      const b = bucket[i];
+      if (prev[i] >= 0) next[prev[i]] = next[i];
+      else head[b] = next[i];
+      if (next[i] >= 0) prev[next[i]] = prev[i];
+    };
+    let current = 0;
+    remove(current);
+    order[0] = current;
+    const maxRing = Math.max(gw, gh);
+    for (let step = 1; step < n; step++) {
+      const x = pos[2 * current];
+      const y = pos[2 * current + 1];
+      const cx = clamp((x / cellSize) | 0, 0, gw - 1);
+      const cy = clamp((y / cellSize) | 0, 0, gh - 1);
+      let best = -1;
+      let bestD = Infinity;
+      for (let ring = 0; ring <= maxRing; ring++) {
+        for (let gy = cy - ring; gy <= cy + ring; gy++) {
+          if (gy < 0 || gy >= gh) continue;
+          const edgeRow = gy === cy - ring || gy === cy + ring;
+          for (let gx = cx - ring; gx <= cx + ring; gx += edgeRow ? 1 : 2 * ring || 1) {
+            if (gx < 0 || gx >= gw) continue;
+            for (let j = head[gy * gw + gx]; j >= 0; j = next[j]) {
+              const dx = pos[2 * j] - x;
+              const dy = pos[2 * j + 1] - y;
+              const d = dx * dx + dy * dy;
+              if (d < bestD) { bestD = d; best = j; }
+            }
+          }
+        }
+        const safe = ring * cellSize;
+        if (best >= 0 && bestD <= safe * safe) break;
+      }
+      current = best;
+      remove(current);
+      order[step] = current;
+    }
+
+    // 2-opt with neighbour lists (treating the walk as a cycle).
+    const k = o.neighbours;
+    const candidates = nearestNeighbours(pos, width, height, k);
+    const where = new Int32Array(n);
+    for (let i = 0; i < n; i++) where[order[i]] = i;
+    const reverse = (from, to) => {
+      while (from < to) {
+        const a = order[from], b = order[to];
+        order[from] = b; where[b] = from;
+        order[to] = a; where[a] = to;
+        from++; to--;
+      }
+    };
+    for (let pass = 0; pass < o.passes; pass++) {
+      let improved = false;
+      for (let i = 0; i < n; i++) {
+        const a = order[i];
+        const b = order[(i + 1) % n];
+        const dab = dist(a, b);
+        for (let q = 0; q < k; q++) {
+          const c = candidates[a * k + q];
+          if (c < 0) break;
+          const dac = dist(a, c);
+          if (dac >= dab) break;
+          const j = where[c];
+          const d = order[(j + 1) % n];
+          if (c === b || d === a) continue;
+          const gain = dab + dist(c, d) - dac - dist(b, d);
+          if (gain > 1e-9) {
+            if (i < j) reverse(i + 1, j);
+            else reverse(j + 1, i);
+            improved = true;
+            break;
+          }
+        }
+      }
+      if (!improved || now() - start > o.budgetMs) break;
+    }
+
+    // Open the cycle at its longest edge.
+    let cut = 0;
+    let longest = -1;
+    for (let i = 0; i < n; i++) {
+      const d = dist(order[i], order[(i + 1) % n]);
+      if (d > longest) { longest = d; cut = i; }
+    }
+    const open = new Int32Array(n);
+    for (let i = 0; i < n; i++) open[i] = order[(cut + 1 + i) % n];
+    return open;
+  }
+
+  /* ------------------------------------------------------------------ *
+   *  Stamp geometry                                                    *
+   * ------------------------------------------------------------------ */
+
+  /**
+   * Outline of a perforated stamp: a rectangle whose edges are bitten by
+   * semicircular holes, with a quarter hole on every corner (comb
+   * perforation). Returns a closed clockwise polygon [x0, y0, x1, y1, …].
+   */
+  function perforatedOutline(width, height, holeRadius, pitch, arcSegments) {
+    const segments = arcSegments || 8;
+    const r = holeRadius;
+    const points = [];
+    const push = (x, y) => points.push(x, y);
+    const edges = [
+      { x: 0, y: 0, dx: 1, dy: 0, length: width },
+      { x: width, y: 0, dx: 0, dy: 1, length: height },
+      { x: width, y: height, dx: -1, dy: 0, length: width },
+      { x: 0, y: height, dx: 0, dy: -1, length: height }
+    ];
+    for (let e = 0; e < 4; e++) {
+      const edge = edges[e];
+      const before = edges[(e + 3) % 4];
+      const nx = -edge.dy, ny = edge.dx; // inward normal (clockwise, y down)
+      // quarter bite around the corner where this edge starts
+      for (let s = 0; s <= segments; s++) {
+        const phi = (s / segments) * (Math.PI / 2);
+        push(
+          edge.x + r * (-Math.cos(phi) * before.dx + Math.sin(phi) * edge.dx),
+          edge.y + r * (-Math.cos(phi) * before.dy + Math.sin(phi) * edge.dy)
+        );
+      }
+      const count = Math.max(1, Math.round(edge.length / pitch));
+      const spacing = edge.length / count;
+      for (let h = 1; h < count; h++) {
+        const hx = edge.x + edge.dx * spacing * h;
+        const hy = edge.y + edge.dy * spacing * h;
+        for (let s = 0; s <= segments; s++) {
+          const theta = (s / segments) * Math.PI;
+          push(
+            hx + r * (-Math.cos(theta) * edge.dx + Math.sin(theta) * nx),
+            hy + r * (-Math.cos(theta) * edge.dy + Math.sin(theta) * ny)
+          );
+        }
+      }
+    }
+    return Float32Array.from(points);
+  }
+
+  function polygonArea(points) {
+    let area = 0;
+    const n = points.length / 2;
+    for (let i = 0; i < n; i++) {
+      const j = (i + 1) % n;
+      area += points[2 * i] * points[2 * j + 1] - points[2 * j] * points[2 * i + 1];
+    }
+    return Math.abs(area) / 2;
+  }
+
+  /* ------------------------------------------------------------------ *
+   *  The whole machine                                                 *
+   * ------------------------------------------------------------------ */
+
+  const DEFAULTS = Object.assign({}, TONE_DEFAULTS, {
+    path: 'serpentine',
+    orientation: 0,
+    iterations: 20,
+    step: 3,
+    territoryMode: 'adaptive', // 'adaptive' | 'fixed'
+    territory: 1.5,            // fixed mode: minimum distance between dots (cells)
+    packing: 0.7,              // adaptive mode: fraction of the local spacing
+    maxSpacing: 8,
+    lattice: false,
+    attempts: 1,
+    tether: 0,
+    anneal: false,
+    relax: true,
+    seed: 'trix',
+    colorMode: 'mono',         // 'mono' | 'cmyk' | 'rgb'
+    blackGeneration: 0.6,      // cmyk: strength of the key (black) layer
+    maxSnapshots: 32,
+    snapshots: true,
+    tour: false
+  });
+
+  /** Which layers to dot, and how each one reads the image. */
+  function layerPlan(colorMode) {
+    if (colorMode === 'cmyk') {
+      return [
+        { key: 'c', source: 0, orientation: 0 },
+        { key: 'm', source: 1, orientation: 5 },
+        { key: 'y', source: 2, orientation: 3 },
+        { key: 'k', source: 'key', orientation: 6 }
+      ];
+    }
+    if (colorMode === 'rgb') {
+      return [
+        { key: 'r', source: 0, orientation: 0, light: true },
+        { key: 'g', source: 1, orientation: 5, light: true },
+        { key: 'b', source: 2, orientation: 3, light: true }
+      ];
+    }
+    return [{ key: 'ink', source: 'lum', orientation: 0 }];
+  }
+
+  /**
+   * Run both phases for every layer.
+   * input: { width, height, rgba } — the image already cropped to the grid.
+   */
+  function generate(input, settings, hooks) {
+    const s = Object.assign({}, DEFAULTS, settings);
+    const W = input.width;
+    const H = input.height;
+    const count = W * H;
+    const now = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
+    const started = now();
+    const lum = rgbaToLuminance(input.rgba, count);
+    const plan = layerPlan(s.colorMode);
+    const layers = [];
+    let cmyDensities = null;
+
+    for (let li = 0; li < plan.length; li++) {
+      const layer = plan[li];
+      const layerStart = now();
+      let density;
+      if (layer.source === 'lum') {
+        density = toneMap(lum, W, H, s);
+      } else if (layer.source === 'key') {
+        // black generation: only where cyan, magenta and yellow agree on darkness
+        density = new Float32Array(count);
+        for (let i = 0; i < count; i++) {
+          const shared = Math.min(cmyDensities[0][i], cmyDensities[1][i], cmyDensities[2][i]);
+          density[i] = clamp01((shared - 0.3) / 0.7) * s.blackGeneration;
+        }
+      } else {
+        const channel = rgbaToChannel(input.rgba, count, layer.source);
+        density = toneMap(channel, W, H, Object.assign({}, s, { invert: layer.light ? !s.invert : s.invert }));
+        if (s.colorMode === 'cmyk') (cmyDensities = cmyDensities || []).push(density);
+      }
+
+      const rng = createRng(`${s.seed}:${layer.key}`);
+      const values = quantize(density, 255);
+      const path = scanPath(s.path, W, H, (s.orientation + layer.orientation) & 7, rng);
+      const { cells } = accumulate(values, path, 255, 0);
+      const positions = cellsToPositions(cells, W);
+      const n = cells.length;
+
+      const snapshots = [];
+      const every = Math.max(1, Math.ceil(s.iterations / Math.max(1, s.maxSnapshots)));
+      const shaken = shake(positions, {
+        width: W,
+        height: H,
+        rng,
+        iterations: s.iterations,
+        maxStep: s.step,
+        lattice: s.lattice,
+        attempts: s.attempts,
+        tether: s.tether,
+        anneal: s.anneal,
+        relax: s.relax,
+        radius: s.territory / 2,
+        radiusField: s.territoryMode === 'adaptive' ? createRadiusField(Float32Array.from(values, v => v / 255), W, H, s.packing, s.maxSpacing) : null,
+        onIteration: (iteration, current) => {
+          if (s.snapshots && (iteration % every === 0 || iteration === s.iterations)) {
+            snapshots.push({ iteration, positions: Float32Array.from(current) });
+          }
+          if (hooks && hooks.onIteration) hooks.onIteration(li, iteration, s.iterations, current);
+        }
+      });
+
+      layers.push({
+        key: layer.key,
+        light: !!layer.light,
+        density,
+        count: n,
+        positions: shaken.positions,
+        home: shaken.home,
+        snapshots,
+        acceptance: shaken.acceptance,
+        tour: s.tour ? lineTour(shaken.positions, W, H) : null,
+        ms: now() - layerStart
+      });
+    }
+
+    return { width: W, height: H, layers, ms: now() - started, seed: s.seed };
+  }
+
+  const api = {
+    version: '1.0.0',
+    hashString,
+    createRng,
+    shuffleInPlace,
+    smoothstep,
+    rgbaToLuminance,
+    rgbaToChannel,
+    blur,
+    quantile,
+    ovalMask,
+    toneMap,
+    PATHS,
+    scanPath,
+    quantize,
+    accumulate,
+    cellsToPositions,
+    createRadiusField,
+    shake,
+    nearestNeighbours,
+    nearestNeighbourDistances,
+    latticeAlignment,
+    splatDensity,
+    pearson,
+    histogram,
+    tourLength,
+    lineTour,
+    perforatedOutline,
+    polygonArea,
+    layerPlan,
+    generate,
+    DEFAULTS,
+    TONE_DEFAULTS,
+    SHAKE_DEFAULTS
+  };
+
+  if (typeof module === 'object' && module.exports) module.exports = api;
+  root.TrixCore = api;
+})(typeof self !== 'undefined' ? self : globalThis);
+  </script>
+</body>
+</html>

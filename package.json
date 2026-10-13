@@ -6,7 +6,9 @@
   "scripts": {
     "start": "msaada -d public -p 3000",
     "lint": "eslint public/*.js",
-    "test": "node --test test/*.test.mjs"
+    "test": "node --test test/*.test.mjs tests/core.test.mjs tests/pipeline.test.mjs",
+    "test:e2e": "node --test tests/e2e.test.mjs",
+    "test:all": "node --test tests/"
   },
   "keywords": [
     "generative-art",
@@ -17,6 +19,9 @@
   "license": "MIT",
   "devDependencies": {
     "eslint": "^8.42.0",
-    "http-server": "^14.1.1"
+    "http-server": "^14.1.1",
+    "jpeg-js": "0.4.4",
+    "pngjs": "7.0.0",
+    "puppeteer-core": "24.10.0"
   }
 }
