@@ -8,7 +8,7 @@
     "lint": "eslint public/*.js",
     "test": "node --test test/*.test.mjs tests/core.test.mjs tests/pipeline.test.mjs",
     "test:e2e": "node --test tests/e2e.test.mjs",
-    "test:all": "node --test tests/"
+    "test:all": "node --test \"tests/*.test.mjs\""
   },
   "keywords": [
     "generative-art",
