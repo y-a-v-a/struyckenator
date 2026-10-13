@@ -114,6 +114,7 @@
     }
     .btn:hover { border-color: var(--ink); }
     .btn:active { transform: translateY(1px); }
+    .btn:disabled { opacity: 0.5; cursor: progress; }
     .btn:focus-visible, .chip:focus-visible, .seg button:focus-visible, .swatch:focus-visible, .tab:focus-visible, .recipe:focus-visible, .switch input:focus-visible + span {
       outline: 2px solid var(--accent);
       outline-offset: 2px;
@@ -712,6 +713,10 @@
         <button class="btn" id="savePngBtn" type="button" title="Save PNG (S)">PNG</button>
         <button class="btn" id="saveSvgBtn" type="button" title="Save SVG for plotters and print (Shift+S)">SVG</button>
         <button class="btn" id="copyBtn" type="button" title="Copy image to clipboard">Copy</button>
+        <button class="btn" id="movieBtn" type="button" title="Record the drop and the shake as a video">
+          <svg viewBox="0 0 16 16" aria-hidden="true"><rect x="1.8" y="3.5" width="9" height="9" rx="1.6" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M10.8 7 14.2 5v6l-3.4-2z" fill="currentColor"/></svg>
+          Movie
+        </button>
         <span class="spacer"></span>
         <button class="btn ghost small" id="linkBtn" type="button" title="Copy a link with these settings">Copy settings link</button>
       </div>
@@ -860,6 +865,7 @@
       <kbd>← →</kbd><span>Step through the passes</span>
       <kbd>1 – 9</kbd><span>Recipes</span>
       <kbd>S</kbd><span>Save PNG</span>
+      <kbd>M</kbd><span>Record a movie of the drop and the shake</span>
       <kbd>⇧ S</kbd><span>Save SVG</span>
       <kbd>⌘/Ctrl Z</kbd><span>Undo a setting</span>
       <kbd>?</kbd><span>This list</span>
@@ -2350,17 +2356,62 @@
    * size for precision). Returns horizontal scale factors so the country name
    * fills its line like Unger's NEDERLAND, and the value's length.
    */
+  const COUNTRY_WEIGHT = 500;
+  const VALUE_WEIGHT = 540;
+
   function measureLettering(ctx, layout, stamp, family) {
     const big = 100;
+    const country = stamp.country || '';
     ctx.save();
-    ctx.font = stampFont(layout.country.cap * big, 560, family);
-    const countryWidth = ctx.measureText(stamp.country || '').width / big;
-    ctx.font = stampFont(layout.value.cap * big, 600, family);
+    ctx.font = stampFont(layout.country.cap * big, COUNTRY_WEIGHT, family);
+    const countryWidth = ctx.measureText(country).width / big;
+    ctx.font = stampFont(layout.value.cap * big, VALUE_WEIGHT, family);
     const valueWidth = ctx.measureText(stamp.value || '').width / big;
     ctx.restore();
     const available = layout.country.right - layout.country.x;
-    const countryScale = countryWidth > 0 ? Math.min(1.14, available / countryWidth) : 1;
-    return { countryWidth, countryScale, valueWidth };
+    const gaps = Math.max(1, Array.from(country).length - 1);
+    // too long: condense the letters; too short: open up the spacing a little
+    const countryScale = countryWidth > available ? available / countryWidth : 1;
+    const tracking = countryWidth < available ? Math.min(layout.country.cap * 0.16, (available - countryWidth) / gaps) : 0;
+    return { countryWidth, countryScale, tracking, valueWidth, available };
+  }
+
+  /**
+   * Country name and value of one stamp, in pixel space. Shared by the
+   * screen, the knock-out mask (stroke = halo) and therefore always aligned.
+   */
+  function drawLetteringGlyphs(ctx, layout, metrics, stamp, px, py, s, family, halo) {
+    const country = stamp.country || '';
+    ctx.textBaseline = 'alphabetic';
+    ctx.textAlign = 'left';
+    ctx.save();
+    ctx.translate(px + layout.country.x * s, py + layout.country.baseline * s);
+    ctx.scale(metrics.countryScale, 1);
+    ctx.font = stampFont(layout.country.cap * s, COUNTRY_WEIGHT, family);
+    const tracked = metrics.tracking > 0 && 'letterSpacing' in ctx;
+    if (tracked) ctx.letterSpacing = `${metrics.tracking * s}px`;
+    if (metrics.tracking > 0 && !tracked) {
+      // no letterSpacing support: place the letters one by one
+      let x = 0;
+      for (const ch of Array.from(country)) {
+        ctx.fillText(ch, x, 0);
+        if (halo) ctx.strokeText(ch, x, 0);
+        x += ctx.measureText(ch).width + metrics.tracking * s;
+      }
+    } else {
+      ctx.fillText(country, 0, 0);
+      if (halo) ctx.strokeText(country, 0, 0);
+    }
+    if (tracked) ctx.letterSpacing = '0px';
+    ctx.restore();
+    // the value, a quarter turn, reading upwards: the baseline runs along the right edge
+    ctx.save();
+    ctx.translate(px + layout.value.right * s, py + layout.value.baseline * s);
+    ctx.rotate(-Math.PI / 2);
+    ctx.font = stampFont(layout.value.cap * s, VALUE_WEIGHT, family);
+    ctx.fillText(stamp.value || '', 0, 0);
+    if (halo) ctx.strokeText(stamp.value || '', 0, 0);
+    ctx.restore();
   }
 
   function tracePolygon(ctx, points, toX, toY) {
@@ -2388,26 +2439,7 @@
   function drawLettering(ctx, layout, metrics, stamp, px, py, s, ink, family, microtext) {
     ctx.save();
     ctx.fillStyle = ink;
-    ctx.textBaseline = 'alphabetic';
-    // country
-    ctx.save();
-    ctx.translate(px + layout.country.x * s, py + layout.country.baseline * s);
-    ctx.scale(metrics.countryScale, 1);
-    ctx.font = stampFont(layout.country.cap * s, 560, family);
-    ctx.textAlign = 'left';
-    ctx.fillText(stamp.country || '', 0, 0);
-    ctx.restore();
-    // value, a quarter turn, reading upwards
-    ctx.save();
-    ctx.translate(px + layout.value.right * s, py + layout.value.baseline * s);
-    ctx.rotate(-Math.PI / 2);
-    ctx.font = stampFont(layout.value.cap * s, 600, family);
-    ctx.textAlign = 'left';
-    ctx.textBaseline = 'alphabetic';
-    ctx.translate(0, 0);
-    // glyph tops face left: the baseline runs along the right edge
-    ctx.fillText(stamp.value || '', 0, 0);
-    ctx.restore();
+    drawLetteringGlyphs(ctx, layout, metrics, stamp, px, py, s, family, false);
     // microtext, only legible under the loupe
     if (microtext) {
       const size = layout.micro.size * s;
@@ -2942,8 +2974,9 @@
         out.push(`<use href="#stampPaper" xlink:href="#stampPaper" fill="${frame.paper}"/>`);
         out.push(`<g clip-path="url(#fieldClip)">${layerUses(L.field.x, L.field.y, st.ink)}</g>`);
         const countryFont = L.country.cap / CAP_RATIO;
-        out.push(`<text x="${num(L.country.x)}" y="${num(L.country.baseline)}" font-family="${esc(family)}" font-weight="560" font-size="${num(countryFont)}" fill="${ink}" textLength="${num(m.countryWidth * m.countryScale)}" lengthAdjust="spacingAndGlyphs">${esc(st.country)}</text>`);
-        out.push(`<text transform="translate(${num(L.value.right)} ${num(L.value.baseline)}) rotate(-90)" font-family="${esc(family)}" font-weight="600" font-size="${num(L.value.cap / CAP_RATIO)}" fill="${ink}">${esc(st.value)}</text>`);
+        const countryLength = m.countryScale < 1 ? m.available : m.countryWidth + m.tracking * Math.max(0, Array.from(st.country).length - 1);
+        out.push(`<text x="${num(L.country.x)}" y="${num(L.country.baseline)}" font-family="${esc(family)}" font-weight="${COUNTRY_WEIGHT}" font-size="${num(countryFont)}" fill="${ink}" textLength="${num(countryLength)}" lengthAdjust="${m.countryScale < 1 ? 'spacingAndGlyphs' : 'spacing'}">${esc(st.country)}</text>`);
+        out.push(`<text transform="translate(${num(L.value.right)} ${num(L.value.baseline)}) rotate(-90)" font-family="${esc(family)}" font-weight="${VALUE_WEIGHT}" font-size="${num(L.value.cap / CAP_RATIO)}" fill="${ink}">${esc(st.value)}</text>`);
         if (frame.microtext) {
           out.push(`<text x="${num(L.micro.x0)}" y="${num(L.micro.y)}" font-family="${esc(family)}" font-size="${num(L.micro.size)}" fill="${ink}" textLength="${num(L.micro.x1 - L.micro.x0)}" lengthAdjust="spacing">${esc(` ${frame.microtext} ·`.repeat(6))}</text>`);
         }
@@ -2991,6 +3024,7 @@
     stampLayout,
     stampFont,
     measureLettering,
+    drawLetteringGlyphs,
     drawScene,
     buildScene,
     fitView,
@@ -3277,14 +3311,34 @@
     c.beginPath();
     c.ellipse(size * 0.5, size * 0.42, size * 0.165, size * 0.215, 0, 0, Math.PI * 2);
     c.fill();
+    // soft features, so the dots find a face rather than a helmet
+    const blob = (x, y, rx, ry, alpha, rotation) => {
+      c.fillStyle = `rgba(20,20,20,${alpha})`;
+      c.beginPath();
+      c.ellipse(size * x, size * y, size * rx, size * ry, rotation || 0, 0, Math.PI * 2);
+      c.fill();
+    };
+    c.filter = 'blur(9px)';
+    blob(0.437, 0.415, 0.034, 0.02, 0.6);
+    blob(0.563, 0.415, 0.034, 0.02, 0.6);
+    blob(0.432, 0.378, 0.042, 0.009, 0.5, 0.08);
+    blob(0.568, 0.378, 0.042, 0.009, 0.5, -0.08);
+    blob(0.52, 0.49, 0.016, 0.03, 0.45);
+    blob(0.5, 0.515, 0.03, 0.01, 0.4);
+    blob(0.5, 0.565, 0.045, 0.011, 0.55);
+    blob(0.6, 0.45, 0.05, 0.13, 0.22);
+    c.filter = 'blur(2px)';
+    blob(0.437, 0.415, 0.011, 0.011, 0.85);
+    blob(0.563, 0.415, 0.011, 0.011, 0.85);
+    c.filter = 'none';
     // hair: a soft dark cap of curls
     const rng = T.createRng('placeholder-hair');
-    for (let i = 0; i < 900; i++) {
-      const a = Math.PI * (1.02 + rng() * 0.96);
-      const r = size * (0.17 + rng() * 0.07);
-      const x = size * 0.5 + Math.cos(a) * r * 1.02;
-      const y = size * 0.36 + Math.sin(a) * r * 1.05;
-      c.fillStyle = `rgba(25,25,25,${0.08 + rng() * 0.12})`;
+    for (let i = 0; i < 1100; i++) {
+      const a = Math.PI * (1.0 + rng() * 1.0);
+      const r = size * (0.16 + rng() * 0.075);
+      const x = size * 0.5 + Math.cos(a) * r * 1.05;
+      const y = size * 0.37 + Math.sin(a) * r * 1.0;
+      c.fillStyle = `rgba(25,25,25,${0.08 + rng() * 0.14})`;
       c.beginPath();
       c.arc(x, y, size * (0.012 + rng() * 0.03), 0, Math.PI * 2);
       c.fill();
@@ -3709,28 +3763,11 @@
     const c = canvas.getContext('2d', { willReadFrequently: true });
     const metrics = lettering(st);
     c.lineJoin = 'round';
-    // draw the lettering in black, then thicken it into a halo
-    R.drawScene; // (documentation: lettering is drawn with the same routine as on screen)
-    const draw = () => {
-      c.save();
-      c.translate(L.country.x * ppm, L.country.baseline * ppm);
-      c.scale(metrics.countryScale, 1);
-      c.font = R.stampFont(L.country.cap * ppm, 560, FONT_FAMILY);
-      c.fillText(st.country, 0, 0);
-      c.strokeText(st.country, 0, 0);
-      c.restore();
-      c.save();
-      c.translate(L.value.right * ppm, L.value.baseline * ppm);
-      c.rotate(-Math.PI / 2);
-      c.font = R.stampFont(L.value.cap * ppm, 600, FONT_FAMILY);
-      c.fillText(st.value, 0, 0);
-      c.strokeText(st.value, 0, 0);
-      c.restore();
-    };
+    // the lettering in black, thickened by a stroke into a small halo
     c.fillStyle = '#000';
     c.strokeStyle = '#000';
     c.lineWidth = 0.55 * ppm;
-    draw();
+    R.drawLetteringGlyphs(c, L, metrics, st, 0, 0, ppm, FONT_FAMILY, true);
     const data = c.getImageData(0, 0, canvas.width, canvas.height).data;
     const mask = new Uint8Array(canvas.width * canvas.height);
     for (let i = 0; i < mask.length; i++) mask[i] = data[4 * i + 3] > 40 ? 1 : 0;
@@ -4818,6 +4855,70 @@
     toast(state.stamp.on ? 'SVG saved at true stamp size' : 'SVG saved · ready for a plotter');
   }
 
+  /**
+   * Record the whole performance — dots dropping along the walk, then the
+   * box being shaken — as a video, using the browser's MediaRecorder.
+   */
+  async function saveMovie() {
+    if (!state.result) return;
+    const canvasProto = typeof HTMLCanvasElement !== 'undefined' && HTMLCanvasElement.prototype.captureStream;
+    if (!window.MediaRecorder || !canvasProto) {
+      toast('This browser cannot record video — try Chrome, Edge or Firefox');
+      return;
+    }
+    const mime = ['video/mp4;codecs=avc1', 'video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm', 'video/mp4']
+      .find(type => MediaRecorder.isTypeSupported(type));
+    if (!mime) {
+      toast('No supported video format in this browser');
+      return;
+    }
+    stopPlaying();
+    const scene = getScene();
+    const scale = 1080 / Math.max(scene.width, scene.height);
+    const w = Math.round((scene.width * scale) / 2) * 2;
+    const h = Math.round((scene.height * scale) / 2) * 2;
+    const canvas = makeCanvas(w, h);
+    const ctx = canvas.getContext('2d');
+    const recorder = new MediaRecorder(canvas.captureStream(30), { mimeType: mime, videoBitsPerSecond: 10000000 });
+    const chunks = [];
+    recorder.ondataavailable = event => { if (event.data && event.data.size) chunks.push(event.data); };
+    const stopped = new Promise(resolve => { recorder.onstop = resolve; });
+    const n = state.result.iterations;
+    const plotMs = 2600, pauseMs = 500, shakeMs = n ? 3600 : 0, holdMs = 1600;
+    const total = plotMs + pauseMs + shakeMs + holdMs;
+    const timeAt = e => {
+      if (e < plotMs) { const f = e / plotMs; return -1 + f * f * (3 - 2 * f) * 0.999; }
+      if (e < plotMs + pauseMs || !n) return 0;
+      if (e < plotMs + pauseMs + shakeMs) return n * (1 - Math.pow(1 - (e - plotMs - pauseMs) / shakeMs, 2));
+      return n;
+    };
+    const drawAt = t => {
+      const frame = Object.assign(buildFrame(t), { compareImage: null });
+      R.drawScene(ctx, scene, { s: scale, ox: 0, oy: 0 }, frame, { width: w, height: h, makeCanvas, family: FONT_FAMILY });
+    };
+    drawAt(-1);
+    ui.movieBtn.disabled = true;
+    recorder.start(250);
+    const started = performance.now();
+    await new Promise(resolve => {
+      const tick = () => {
+        const elapsed = performance.now() - started;
+        drawAt(timeAt(Math.min(elapsed, total)));
+        showBadge(`recording · ${(Math.min(elapsed, total) / 1000).toFixed(1)} / ${(total / 1000).toFixed(1)} s`);
+        if (elapsed < total) requestAnimationFrame(tick); else resolve();
+      };
+      requestAnimationFrame(tick);
+    });
+    recorder.stop();
+    await stopped;
+    hideBadge();
+    ui.movieBtn.disabled = false;
+    frameCache = null;
+    const type = mime.split(';')[0];
+    download(new Blob(chunks, { type }), exportName(type === 'video/mp4' ? 'mp4' : 'webm'));
+    toast('Movie saved: the dots drop, then the box shakes');
+  }
+
   async function copyImage() {
     if (!state.result) return;
     try {
@@ -5321,6 +5422,7 @@
       else if (key === 't' || key === 'T') toggleStamp();
       else if (key === 'l' || key === 'L') setLoupe(!state.loupe);
       else if (key === 's') savePng();
+      else if (key === 'm' || key === 'M') saveMovie();
       else if (key === 'S') saveSvg();
       else if (key === '?') ui.keysDialog.showModal();
       else if (key === '\\' && !state.comparing) { state.comparing = true; requestRender(); }
@@ -5410,6 +5512,7 @@
     ui.savePngBtn.addEventListener('click', savePng);
     ui.saveSvgBtn.addEventListener('click', saveSvg);
     ui.copyBtn.addEventListener('click', copyImage);
+    ui.movieBtn.addEventListener('click', saveMovie);
     ui.linkBtn.addEventListener('click', copyLink);
     ui.loupeBtn.addEventListener('click', () => setLoupe(!state.loupe));
     ui.stampBtn.addEventListener('click', toggleStamp);
@@ -5449,6 +5552,33 @@
     });
   }
 
+  /** On phones: shake the device and the box shakes again with a new seed. */
+  function bindDeviceShake() {
+    if (!('DeviceMotionEvent' in window) || !window.matchMedia('(pointer: coarse)').matches) return;
+    let last = 0;
+    const onMotion = event => {
+      const a = event.accelerationIncludingGravity;
+      if (!a || a.x === null) return;
+      const strength = Math.hypot(a.x, a.y, a.z);
+      const now = performance.now();
+      if (strength > 26 && now - last > 1800 && !document.querySelector('dialog[open]')) {
+        last = now;
+        reshake();
+        toast('Shaken! New seed: ' + state.machine.seed);
+      }
+    };
+    if (typeof DeviceMotionEvent.requestPermission === 'function') {
+      // iOS asks for permission, and only from a tap
+      ui.reshakeBtn.addEventListener('click', () => {
+        DeviceMotionEvent.requestPermission()
+          .then(answer => { if (answer === 'granted') window.addEventListener('devicemotion', onMotion); })
+          .catch(() => null);
+      }, { once: true });
+    } else {
+      window.addEventListener('devicemotion', onMotion);
+    }
+  }
+
   function toggleTheme() {
     const rootEl = document.documentElement;
     const dark = rootEl.dataset.theme
@@ -5470,7 +5600,7 @@
   function init() {
     for (const id of ['spectrum', 'brand', 'brandMark', 'howBtn', 'keysBtn', 'themeBtn', 'sourceView', 'sourceCanvas', 'eyeBadge', 'cameraBtn', 'uploadBtn', 'fileInput',
       'stage', 'stageCanvas', 'loupeCanvas', 'flash', 'stageBadge', 'stageHint', 'loupeBtn', 'compareBtn', 'stampBtn', 'playBtn', 'acceptanceCanvas', 'timeline',
-      'scrubLabels', 'iterationOut', 'reshakeBtn', 'savePngBtn', 'saveSvgBtn', 'copyBtn', 'linkBtn', 'stats', 'recipes', 'cameraDialog', 'boothVideo', 'boothDots',
+      'scrubLabels', 'iterationOut', 'reshakeBtn', 'savePngBtn', 'saveSvgBtn', 'copyBtn', 'movieBtn', 'linkBtn', 'stats', 'recipes', 'cameraDialog', 'boothVideo', 'boothDots',
       'boothGuide', 'boothCount', 'boothFlash', 'boothLive', 'boothTimer', 'boothMirror', 'boothDevice', 'boothError', 'shutterBtn', 'howDialog', 'keysDialog',
       'dropOverlay', 'toast']) {
       ui[id] = document.getElementById(id);
@@ -5494,6 +5624,7 @@
     bindLabHover();
     bindKeyboard();
     bindDropAndPaste();
+    bindDeviceShake();
     syncControls();
     updateAccent();
     commitNow();
@@ -5516,7 +5647,7 @@
     window.trix = { state, T, R, applyRecipe, setValue: (target, key, value) => {
       const spec = allSpecs.find(s => s.target === target && s.key === key) || { target, key };
       setValue(spec, value, true);
-    }, savePng, saveSvg, exportCanvas, settingsLink, frame: () => currentFrame(), sceneSvg: () => R.sceneToSvg(getScene(), finalFrame(), {}), play, setTime, toggleStamp, openBooth, closeBooth, takePhoto, loadBlob, recipes: RECIPE_CARDS };
+    }, savePng, saveSvg, saveMovie, exportCanvas, settingsLink, frame: () => currentFrame(), sceneSvg: () => R.sceneToSvg(getScene(), finalFrame(), {}), play, setTime, toggleStamp, openBooth, closeBooth, takePhoto, loadBlob, recipes: RECIPE_CARDS };
   }
 
   init();
