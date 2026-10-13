@@ -77,11 +77,19 @@ hash, so a move costs O(1), and adds:
 
 ### Tone
 
-Before the walk, the photo goes through auto levels, brightness and contrast,
-a midtone gamma, large-radius clarity, unsharp "detail" (so eyes, lips and
-nostrils earn their dots), an oval background fade (the soft halo of the
-Beatrix portrait), and a "dot economy" factor. Struycken wanted as few dots
-as possible.
+Before the walk, the photo goes through these steps:
+
+- auto levels
+- **auto tone**: it measures the median tone of the *face* (the inner part
+  of the portrait oval) and picks the midtone curve that brings it to a
+  stamp-like lightness, so a dark film scan and a bright selfie start from
+  the same balance
+- brightness and contrast
+- a relative midtone gamma
+- large-radius clarity
+- unsharp "detail", so eyes, lips and nostrils earn their dots
+- an oval background fade, the soft halo of the Beatrix portrait
+- a "dot economy" factor; Struycken wanted as few dots as possible
 
 ### Marks and inks
 
@@ -101,9 +109,10 @@ black).
 - **Source.** Drag to frame your face in the oval, scroll or pinch to zoom.
   Drop or paste a photo anywhere. *Machine eye* shows the tone map at grid
   resolution: what the machine actually sees.
-- **Photo booth.** A webcam view with an oval guide, a 3-second timer,
-  shutter sound and flash, a mirror switch, and a **live dot mirror** that
-  runs the machine on the video in real time.
+- **Photo booth.** A webcam view with an oval guide and a **live dot
+  mirror**, on by default, that runs the machine on the video in real time.
+  It also has a 3-second timer, shutter sound and flash, a mirror switch, and
+  a camera picker.
 - **Stage.** A vector rendering. Scroll to zoom into individual dots, drag to
   pan, double-click to fit. The **loupe** is a philatelist's magnifier that
   re-renders the dots, perforation and microtext crisply. *Compare* (hold
@@ -111,14 +120,18 @@ black).
 - **Timeline.** Replay the whole performance: the dots are plotted along the
   walk (watch the meander or the Hilbert curve draw them), then the box is
   shaken. Scrub to any moment. Bars behind the track show how many moves each
-  pass accepted.
+  pass accepted. Optional sound: the pen ticks along the walk, and the
+  marbles rattle more when more moves are accepted.
 - **Recipes.** A strip of live thumbnails of *your* photo through every
   machine: Trix, Struycken 1983, Marbles, Crisp, Whorl, Unshaken, Engraving,
   One line, Trichrome, Night light, Typewriter and Cross-stitch.
 - **Stamp.** A perforated stamp (20.8 × 25.6 mm, adjustable gauge) with the
   country name along the bottom and the value turned a quarter, as on the
-  Beatrix stamps. Letters can be knocked out of the dots (Gerard Unger's open
-  letters). Seed microtext is legible only under the loupe. Options: a
+  Beatrix stamps. The letters are printed through a 30° gravure dot screen
+  whose dots close into solid letters, like Gerard Unger's rotogravure
+  lettering: solid at a glance, a screen under the loupe. Letters can be
+  knocked out of the portrait dots. Seed microtext is legible only under the
+  loupe. Options: a
   postmark with today's date and your post office, an envelope, album or
   linen background, and a pair, a block of four, or a **series of sixteen**
   colours spaced evenly through the spectrum in OKLCH, as Struycken chose
@@ -127,14 +140,16 @@ black).
   timeline: spikes at 1 and √2 cells on the grid, one smooth hump once
   shaken.
 - **Export.** PNG (3200 px), SVG at true stamp size in millimetres (dot fields
-  defined once and reused per stamp), clipboard, and a **movie** of the drop
-  and the shake (MediaRecorder).
+  defined once and reused per stamp), clipboard, a **movie** of the drop and
+  the shake (MediaRecorder), and **print**: real 20.8 × 25.6 mm stamps on
+  paper.
 - **Comfort.** Undo (⌘/Ctrl-Z), settings links (`#t=…`, the photo stays
   local), saved presets, light and dark themes, and an accent colour that
   follows your ink. On phones you can shake the phone to re-shake the box.
   `?` lists the keyboard shortcuts.
 
-Everything runs locally. Photos never leave the browser.
+Everything runs locally. Photos never leave the browser. Settings that arrive
+by link, from storage or from presets are validated before use.
 
 ## Architecture
 
