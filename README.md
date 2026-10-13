@@ -6,6 +6,16 @@ This repository contains several modern web-based implementations of algorithmic
 
 The implementations in this repository include:
 
+- **Trix** (`public/trix.html`): a new implementation of the Struycken
+  stamp algorithm that puts *your* head on the stamp. Take a photo with the
+  webcam or upload one. Watch the dots drop along a space-filling walk and
+  the box being shaken (a hard-disk Monte Carlo simulation with territories
+  that follow the tone). Then wrap the result in a perforated Beatrix-style
+  stamp, a postmarked envelope or a sheet of sixteen colours. Exports PNG,
+  true-size SVG and a movie. See [public/trix_readme.md](public/trix_readme.md).
+
+  ![Trix: a sheet of sixteen stamps](docs/trix-sheet.png)
+
 - **Struycken Algorithm Image Processor**: A recreation of Struycken's famous algorithm used to create the Dutch Queen's postage stamp in the 1980s. This implementation converts grayscale images to unique point patterns with advanced controls for tonal adjustment, point distribution, and visual customization.
 
 - **Technisch Procédé (index3)**: A source-faithful re-implementation of the stamp procedure as described in [Paul Hefting's account](https://kalden.home.xs4all.nl/stru/struycken-nl.htm): a meander scan with carry places the dots, then the "box of marbles" is shaken — one die roll per dot per iteration, at most 3 places of drift, territories never violated. The algorithm lives in a DOM-free module (`public/js/struycken-core.js`) with a seeded PRNG, so every pattern is reproducible from its seed and shareable as a URL. Includes live invariant checks, in-page self-tests, and SVG/PNG/JSON export. Kept as the annotated reference version.
@@ -44,6 +54,18 @@ Each implementation includes various interactive features:
 ## Usage
 
 Open any of the HTML files in the `/public` directory in a modern web browser to explore the different implementations. Each implementation includes its own set of controls and options for creating unique visual experiences.
+
+To use the webcam in Trix in any browser, serve the folder over `http://localhost` (for example `npm start`); Chrome also allows it on `file://`.
+
+## Tests
+
+```bash
+npm install
+npm test           # Trix engine unit tests + full runs on the photos in test-images/
+npm run test:e2e   # drives public/trix.html in the installed Chrome (fake webcam included)
+```
+
+The pipeline tests write contact sheets of every recipe to `test-output/`.
 
 For more detailed information about specific implementations, refer to the individual documentation files in the `/public` directory.
 
