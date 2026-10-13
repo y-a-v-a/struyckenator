@@ -926,6 +926,23 @@
     tour: false
   });
 
+  /** Machine recipes: algorithm settings only (the page adds tone, ink and paper). */
+  const RECIPES = {
+    // The 1983 rules as described by Delft: meander, whole-cell moves of at
+    // most 3 positions, one fixed territory, 20 passes, nothing else.
+    struycken: { path: 'serpentine', iterations: 20, step: 3, territoryMode: 'fixed', territory: 1.5, lattice: true, relax: false, attempts: 1, anneal: false, tether: 0 },
+    // Same walk, but marbles roll freely and claim room in proportion to the tone.
+    marbles: { path: 'serpentine', iterations: 20, step: 3, territoryMode: 'adaptive', packing: 0.72, lattice: false, relax: true, attempts: 2, anneal: false, tether: 0 },
+    // Hilbert walk + annealing: the most even, print-like blue noise.
+    hilbert: { path: 'hilbert', iterations: 24, step: 2.5, territoryMode: 'adaptive', packing: 0.78, lattice: false, relax: true, attempts: 2, anneal: true, tether: 0 },
+    // Tethered dots: edges stay razor sharp.
+    crisp: { path: 'hilbert', iterations: 16, step: 2, territoryMode: 'adaptive', packing: 0.7, lattice: false, relax: true, attempts: 2, anneal: true, tether: 1.5 },
+    // A spiral walk that leaves faint fingerprint whorls in the texture.
+    whorl: { path: 'spiral', iterations: 10, step: 1.5, territoryMode: 'adaptive', packing: 0.6, lattice: false, relax: true, attempts: 1, anneal: false, tether: 0 },
+    // Phase 1 only: the dots on their grid, before the box was shaken.
+    grid: { path: 'serpentine', iterations: 0, territoryMode: 'fixed', territory: 1, lattice: true, relax: false, attempts: 1, anneal: false, tether: 0 }
+  };
+
   /** Which layers to dot, and how each one reads the image. */
   function layerPlan(colorMode) {
     if (colorMode === 'cmyk') {
@@ -1060,6 +1077,7 @@
     layerPlan,
     generate,
     DEFAULTS,
+    RECIPES,
     TONE_DEFAULTS,
     SHAKE_DEFAULTS
   };

@@ -95,14 +95,14 @@ export function writePng(file, width, height, rgba) {
  * pixels per cell, `dotRadius` is in cells. Optionally places a grey
  * preview of the source next to the dots (side-by-side contact sheet).
  */
-export function rasterizeDots(positions, gridWidth, gridHeight, { scale = 4, dotRadius = 0.3, ink = [20, 20, 20], paper = [250, 248, 242], source = null } = {}) {
+export function rasterizeDots(positions, gridWidth, gridHeight, { scale = 4, dotRadius = 0.3, radii = null, ink = [20, 20, 20], paper = [250, 248, 242], source = null } = {}) {
   const panel = gridWidth * scale;
   const width = source ? panel * 2 : panel;
   const height = gridHeight * scale;
   const rgba = new Uint8ClampedArray(width * height * 4);
   const coverage = new Float32Array(panel * height);
-  const r = dotRadius * scale;
   for (let i = 0; i < positions.length; i += 2) {
+    const r = (radii ? radii[i / 2] : dotRadius) * scale;
     const cx = positions[i] * scale;
     const cy = positions[i + 1] * scale;
     for (let y = Math.max(0, Math.floor(cy - r - 1)); y <= Math.min(height - 1, Math.ceil(cy + r + 1)); y++) {
