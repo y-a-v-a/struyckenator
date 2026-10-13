@@ -14,6 +14,8 @@ The implementations in this repository include:
   stamp, a postmarked envelope or a sheet of sixteen colours. Exports PNG,
   true-size SVG and a movie. See [public/trix_readme.md](public/trix_readme.md).
 
+  **Try it:** <https://y-a-v-a.github.io/struyckenator/trix.html>
+
   ![Trix: a sheet of sixteen stamps](docs/trix-sheet.png)
 
 - **Struycken Algorithm Image Processor**: A recreation of Struycken's famous algorithm used to create the Dutch Queen's postage stamp in the 1980s. This implementation converts grayscale images to unique point patterns with advanced controls for tonal adjustment, point distribution, and visual customization.

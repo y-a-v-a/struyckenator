@@ -6,6 +6,8 @@ recognition group) for the dotted portrait of Queen Beatrix on the Dutch
 definitive stamp. "Trix" is the queen's nickname. The tool puts **your** head
 on that stamp.
 
+**Try it online:** <https://y-a-v-a.github.io/struyckenator/trix.html>
+
 Open `public/trix.html` in a browser (no build step), or serve the folder with
 `npm start` to use the webcam on any browser. Chrome also allows the camera
 on `file://`.

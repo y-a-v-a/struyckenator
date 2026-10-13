@@ -1,0 +1,37 @@
+# Publishes the static apps in public/ to GitHub Pages, as they are:
+# every page is self-contained, so there is no build step.
+# Trix: https://y-a-v-a.github.io/struyckenator/trix.html
+name: Deploy public/ to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'public/**'
+      - '.github/workflows/pages.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# One deployment at a time; a newer push waits instead of cancelling a live one.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}trix.html
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/configure-pages@v6
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: public
+      - id: deployment
+        uses: actions/deploy-pages@v5
