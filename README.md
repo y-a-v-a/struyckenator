@@ -55,31 +55,23 @@ Each implementation includes various interactive features:
 
 Open any of the HTML files in the `/public` directory in a modern web browser to explore the different implementations. Each implementation includes its own set of controls and options for creating unique visual experiences.
 
-To use the webcam in Trix in any browser, serve the folder over `http://localhost` (for example `npm start`); Chrome also allows it on `file://`.
-
-## Tests
-
-```bash
-npm install
-npm test           # Trix engine unit tests + full runs on the photos in test-images/
-npm run test:e2e   # drives public/trix.html in the installed Chrome (fake webcam included)
-```
-
-The pipeline tests write contact sheets of every recipe to `test-output/`.
-
 For more detailed information about specific implementations, refer to the individual documentation files in the `/public` directory.
 
 To serve the files locally, run `npx serve .` from the `/public` directory; `serve.json` disables clean URLs so pages keep their `.html` extension.
 
+The webcam in Trix (and index4) needs a secure page in most browsers: serve the folder over `http://localhost` as above; Chrome also allows it on `file://`.
+
 ## Testing
 
-The `index3.html` algorithm core is DOM-free and covered by 14 deterministic tests (seeded PRNG, no wall clock), including a brute-force cross-check of the territory rule and the worked example from Hefting's text:
-
+```bash
+npm install
+npm test           # index3 core self-tests + Trix engine and photo-pipeline tests
+npm run test:e2e   # drives public/trix.html in the installed Chrome (fake webcam included)
+npm run test:all   # all of the above
 ```
-npm test
-```
 
-The identical suite runs in the browser via the "Run self-tests" button in `index3.html`.
+- The `index3.html` algorithm core is DOM-free and covered by 14 deterministic tests (seeded PRNG, no wall clock), including a brute-force cross-check of the territory rule and the worked example from Hefting's text. The identical suite runs in the browser via the "Run self-tests" button in `index3.html`.
+- The Trix engine is tested straight out of `public/trix.html`. The pipeline tests run every recipe on the photos in `test-images/` (skipped when the folder is absent) and write contact sheets to `test-output/`.
 
 ## Historical Context
 
