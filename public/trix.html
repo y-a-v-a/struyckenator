@@ -459,12 +459,11 @@
     .scrub input { position: absolute; left: 0; right: 0; top: 14px; }
     .scrub-labels {
       position: absolute; left: 8px; right: 8px; bottom: -2px;
-      font-family: var(--mono); font-size: 10.5px; color: var(--faint);
+      font-family: var(--mono); font-size: 10.5px; color: var(--muted);
       pointer-events: none;
     }
-    .scrub-labels span { position: absolute; transform: translateX(-50%); white-space: nowrap; }
-    .scrub-labels span:first-child { transform: none; }
-    .scrub-labels span:last-child { transform: translateX(-100%); }
+    .scrub-labels span { position: absolute; white-space: nowrap; padding-left: 3px; border-left: 1px solid var(--line-strong); line-height: 1.2; }
+    .scrub-labels span:last-child { transform: translateX(-100%); border-left: 0; padding-left: 0; padding-right: 3px; border-right: 1px solid var(--line-strong); }
     .iteration-out { font-family: var(--mono); font-size: 12px; color: var(--muted); min-width: 64px; text-align: right; font-variant-numeric: tabular-nums; }
 
     .actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; align-items: center; }
@@ -801,9 +800,9 @@
       </div>
       <div class="booth-side">
         <p style="margin:0;color:var(--muted);font-size:13px">Put your head in the oval, like a queen on a stamp. Look straight into the lens; soft light from one side works beautifully.</p>
-        <div class="row inline"><label for="boothLive">Live dot mirror</label><span class="switch"><input type="checkbox" id="boothLive"><span></span></span></div>
-        <div class="row inline"><label for="boothTimer">3-second timer</label><span class="switch"><input type="checkbox" id="boothTimer" checked><span></span></span></div>
-        <div class="row inline"><label for="boothMirror">Mirror</label><span class="switch"><input type="checkbox" id="boothMirror" checked><span></span></span></div>
+        <div class="row inline"><label for="boothLive">Live dot mirror</label><label class="switch"><input type="checkbox" id="boothLive"><span></span></label></div>
+        <div class="row inline"><label for="boothTimer">3-second timer</label><label class="switch"><input type="checkbox" id="boothTimer" checked><span></span></label></div>
+        <div class="row inline"><label for="boothMirror">Mirror</label><label class="switch"><input type="checkbox" id="boothMirror" checked><span></span></label></div>
         <select id="boothDevice" aria-label="Camera" hidden></select>
         <p class="booth-error" id="boothError" hidden></p>
         <button class="shutter" id="shutterBtn" type="button" aria-label="Take photo"></button>
@@ -1597,7 +1596,7 @@
   }
 
   function lineTour(pos, width, height, options) {
-    const o = withDefaults({ passes: 6, neighbours: 8, budgetMs: 400 }, options);
+    const o = withDefaults({ passes: 12, neighbours: 10, budgetMs: 600 }, options);
     const n = pos.length / 2;
     const order = new Int32Array(n);
     if (n < 4) {
@@ -1676,10 +1675,12 @@
         from++; to--;
       }
     };
-    for (let pass = 0; pass < o.passes; pass++) {
+    /** 2-opt on both sides of every city: replace two crossing edges by two shorter ones. */
+    const twoOpt = () => {
       let improved = false;
       for (let i = 0; i < n; i++) {
         const a = order[i];
+        // successor side: edges (a,b) and (c,d) become (a,c) and (b,d)
         const b = order[(i + 1) % n];
         const dab = dist(a, b);
         for (let q = 0; q < k; q++) {
@@ -1690,16 +1691,86 @@
           const j = where[c];
           const d = order[(j + 1) % n];
           if (c === b || d === a) continue;
-          const gain = dab + dist(c, d) - dac - dist(b, d);
-          if (gain > 1e-9) {
+          if (dab + dist(c, d) - dac - dist(b, d) > 1e-9) {
             if (i < j) reverse(i + 1, j);
             else reverse(j + 1, i);
             improved = true;
             break;
           }
         }
+        // predecessor side: edges (b,a) and (d,c) become (b,d) and (a,c)
+        const ia = where[a];
+        const p = order[(ia - 1 + n) % n];
+        const dpa = dist(p, a);
+        for (let q = 0; q < k; q++) {
+          const c = candidates[a * k + q];
+          if (c < 0) break;
+          const dac = dist(a, c);
+          if (dac >= dpa) break;
+          const j = where[c];
+          const d = order[(j - 1 + n) % n];
+          if (c === p || d === a || j === 0 || ia === 0) continue;
+          if (dpa + dist(d, c) - dac - dist(p, d) > 1e-9) {
+            if (ia < j) reverse(ia, j - 1);
+            else reverse(j, ia - 1);
+            improved = true;
+            break;
+          }
+        }
       }
-      if (!improved || now() - start > o.budgetMs) break;
+      return improved;
+    };
+
+    /** Or-opt: lift a run of 1–3 dots out and drop it between two nearer neighbours. */
+    const orOpt = () => {
+      let improved = false;
+      for (let len = 1; len <= 3; len++) {
+        for (let i = 1; i + len < n; i++) {
+          const p = order[i - 1];
+          const s0 = order[i];
+          const s1 = order[i + len - 1];
+          const nx = order[i + len];
+          const removeGain = dist(p, s0) + dist(s1, nx) - dist(p, nx);
+          if (removeGain <= 1e-9) continue;
+          let best = null;
+          for (const end of [s0, s1]) {
+            for (let q = 0; q < k; q++) {
+              const c = candidates[end * k + q];
+              if (c < 0) break;
+              if (dist(end, c) >= removeGain) break;
+              const j = where[c];
+              if (j >= i - 1 && j <= i + len - 1) continue;
+              if (j + 1 >= n) continue;
+              const e = order[j + 1];
+              const base = dist(c, e);
+              const forward = dist(c, s0) + dist(s1, e) - base;
+              const backward = dist(c, s1) + dist(s0, e) - base;
+              const gain = removeGain - Math.min(forward, backward);
+              if (gain > 1e-9 && (!best || gain > best.gain)) best = { gain, j, flip: backward < forward };
+            }
+          }
+          if (!best) continue;
+          const segment = Array.from(order.subarray(i, i + len));
+          if (best.flip) segment.reverse();
+          const rest = [];
+          for (let m = 0; m < n; m++) if (m < i || m >= i + len) rest.push(order[m]);
+          const anchor = order[best.j];
+          let w = 0;
+          for (let m = 0; m < rest.length; m++) {
+            order[w++] = rest[m];
+            if (rest[m] === anchor) for (const v of segment) order[w++] = v;
+          }
+          for (let m = 0; m < n; m++) where[order[m]] = m;
+          improved = true;
+        }
+      }
+      return improved;
+    };
+
+    for (let pass = 0; pass < o.passes; pass++) {
+      const a = twoOpt();
+      const b = orOpt();
+      if ((!a && !b) || now() - start > o.budgetMs) break;
     }
 
     // Open the cycle at its longest edge.
@@ -1868,6 +1939,8 @@
       } else {
         const channel = rgbaToChannel(input.rgba, count, layer.source);
         density = toneMap(channel, W, H, Object.assign({}, s, { invert: layer.light ? !s.invert : s.invert }));
+        // light adds up: three lamps on one spot already make white
+        if (layer.light) for (let i = 0; i < count; i++) density[i] *= 0.85;
         if (s.colorMode === 'cmyk') (cmyDensities = cmyDensities || []).push(density);
       }
 
@@ -2109,9 +2182,9 @@
     const ctx = canvas.getContext('2d');
     const { r, g, b } = hexToRgb(color);
     const grad = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
-    grad.addColorStop(0, `rgba(${Math.min(255, r + 120)},${Math.min(255, g + 120)},${Math.min(255, b + 120)},1)`);
-    grad.addColorStop(0.18, `rgba(${r},${g},${b},0.95)`);
-    grad.addColorStop(0.5, `rgba(${r},${g},${b},0.28)`);
+    grad.addColorStop(0, `rgba(${Math.min(255, r + 110)},${Math.min(255, g + 110)},${Math.min(255, b + 110)},1)`);
+    grad.addColorStop(0.2, `rgba(${r},${g},${b},0.85)`);
+    grad.addColorStop(0.5, `rgba(${r},${g},${b},0.2)`);
     grad.addColorStop(1, `rgba(${r},${g},${b},0)`);
     ctx.fillStyle = grad;
     ctx.fillRect(0, 0, size, size);
@@ -2162,7 +2235,7 @@
         const x = ox + positions[2 * i] * k;
         const y = oy + positions[2 * i + 1] * k;
         if (x < x0 || x > x1 || y < y0 || y > y1) continue;
-        const s = radii[i] * k * 4.2;
+        const s = radii[i] * k * 3.4;
         ctx.drawImage(sprite, x - s / 2, y - s / 2, s, s);
       }
       return;
@@ -2442,10 +2515,10 @@
     // wear: seeded speckles knocked out of the ink
     const rng = root.TrixCore.createRng(`postmark:${mark.seed}`);
     c.globalCompositeOperation = 'destination-out';
-    const specks = Math.floor((w * h) / 90);
+    const specks = Math.min(60000, Math.floor((w * h) / Math.max(40, 160 / Math.max(1, s / 10))));
     for (let i = 0; i < specks; i++) {
       c.globalAlpha = 0.25 + rng() * 0.6;
-      const size = 0.4 + rng() * Math.max(0.6, s * 0.12);
+      const size = 0.4 + rng() * Math.max(0.6, s * 0.035);
       c.fillRect(rng() * w, rng() * h, size, size);
     }
     // a lighter half where the canceller pressed less
@@ -2988,15 +3061,15 @@
 
   const RECIPE_CARDS = [
     { id: 'trix', name: 'Trix', note: 'Hilbert walk, marbles that follow the tone', machine: Object.assign({}, T.RECIPES.hilbert, { grid: 160, colorMode: 'mono' }), look: { style: 'dot', dotSize: 0.8, sizeByTone: 0.5 } },
-    { id: 'struycken', name: 'Struycken 1983', note: '128 cells, meander, 20 shakes', machine: Object.assign({}, T.RECIPES.struycken, { grid: 128, colorMode: 'mono' }), look: { style: 'dot', dotSize: 0.62, sizeByTone: 0 } },
+    { id: 'struycken', name: 'Struycken 1983', note: '128 cells, meander, 20 shakes', machine: Object.assign({}, T.RECIPES.struycken, { grid: 128, colorMode: 'mono' }), look: { style: 'dot', dotSize: 0.86, sizeByTone: 0 } },
     { id: 'marbles', name: 'Marbles', note: 'the meander, rolling freely', machine: Object.assign({}, T.RECIPES.marbles, { grid: 144, colorMode: 'mono' }), look: { style: 'dot', dotSize: 0.74, sizeByTone: 0.35 } },
     { id: 'crisp', name: 'Crisp', note: 'tethered dots, sharp edges', machine: Object.assign({}, T.RECIPES.crisp, { grid: 192, colorMode: 'mono' }), look: { style: 'dot', dotSize: 0.7, sizeByTone: 0.6 } },
     { id: 'whorl', name: 'Whorl', note: 'spiral walk, fingerprint grain', machine: Object.assign({}, T.RECIPES.whorl, { grid: 150, colorMode: 'mono' }), look: { style: 'dot', dotSize: 0.74, sizeByTone: 0.4 } },
-    { id: 'unshaken', name: 'Unshaken', note: 'phase 1 only: dots on the grid', machine: Object.assign({}, T.RECIPES.grid, { grid: 128, colorMode: 'mono' }), look: { style: 'dot', dotSize: 0.62, sizeByTone: 0 } },
+    { id: 'unshaken', name: 'Unshaken', note: 'phase 1 only: dots on the grid', machine: Object.assign({}, T.RECIPES.grid, { grid: 128, colorMode: 'mono' }), look: { style: 'dot', dotSize: 0.86, sizeByTone: 0 } },
     { id: 'engraving', name: 'Engraving', note: 'dashes run along the contours', machine: Object.assign({}, T.RECIPES.hilbert, { grid: 150, colorMode: 'mono' }), look: { style: 'dash', dotSize: 0.72, sizeByTone: 0.55 } },
-    { id: 'oneline', name: 'One line', note: 'a single plotter stroke', machine: Object.assign({}, T.RECIPES.hilbert, { grid: 112, colorMode: 'mono' }), look: { style: 'line', dotSize: 0.5, sizeByTone: 0 } },
+    { id: 'oneline', name: 'One line', note: 'a single plotter stroke', machine: Object.assign({}, T.RECIPES.hilbert, { grid: 150, colorMode: 'mono' }), look: { style: 'line', dotSize: 0.32, sizeByTone: 0 } },
     { id: 'trichrome', name: 'Trichrome', note: 'CMYK, each ink its own walk', machine: Object.assign({}, T.RECIPES.hilbert, { grid: 150, colorMode: 'cmyk' }), look: { style: 'dot', dotSize: 0.9, sizeByTone: 0.3 } },
-    { id: 'nightlight', name: 'Night light', note: 'red, green, blue light on black', machine: Object.assign({}, T.RECIPES.hilbert, { grid: 140, colorMode: 'rgb' }), look: { style: 'glow', dotSize: 0.8, sizeByTone: 0.3, paperColor: '#08090c' } },
+    { id: 'nightlight', name: 'Night light', note: 'red, green, blue light on black', machine: Object.assign({}, T.RECIPES.hilbert, { grid: 140, colorMode: 'rgb' }), look: { style: 'glow', dotSize: 0.62, sizeByTone: 0.3, paperColor: '#08090c' } },
     { id: 'typewriter', name: 'Typewriter', note: 'letters instead of dots', machine: Object.assign({}, T.RECIPES.marbles, { grid: 96, colorMode: 'mono' }), look: { style: 'glyph', dotSize: 0.95, sizeByTone: 0.45 } },
     { id: 'stitch', name: 'Cross-stitch', note: 'whole-cell moves, little crosses', machine: Object.assign({}, T.RECIPES.struycken, { grid: 96, territory: 1.2, colorMode: 'mono' }), look: { style: 'cross', dotSize: 0.8, sizeByTone: 0.35 } }
   ];
@@ -3568,7 +3641,8 @@
       layer.smooth = T.blur(layer.density, result.width, result.height, 1.4);
     }
     state.result = result;
-    frameCache = null;
+    state.resultCount = (state.resultCount || 0) + 1;
+    invalidateScene();
     configureTimeline();
     if (job.meta.animate && result.iterations >= 0) {
       play();
@@ -4293,7 +4367,7 @@
       };
     } else if (type === 'toggle') {
       row.classList.add('inline');
-      row.innerHTML = `<label for="${id}">${spec.label}</label><span class="switch"><input type="checkbox" id="${id}"><span></span></span>`;
+      row.innerHTML = `<label for="${id}">${spec.label}</label><label class="switch"><input type="checkbox" id="${id}"><span></span></label>`;
       const input = $('input', row);
       input.addEventListener('change', () => setValue(spec, input.checked, true));
       spec.sync = () => { input.checked = !!value(); };
@@ -5081,7 +5155,7 @@
     const cell = canvas.width / cols;
     const values = new Uint16Array(cols * rows);
     for (let y = 0; y < rows; y++) for (let x = 0; x < cols; x++) {
-      values[y * cols + x] = Math.round(clamp(240 - Math.hypot(x - 8.5, (y - 5.5) * 1.4) * 26, 20, 255));
+      values[y * cols + x] = Math.round(clamp(150 - Math.hypot(x - 8.5, (y - 5.5) * 1.4) * 16, 12, 170));
     }
     const home = T.cellsToPositions(T.accumulate(values, T.scanPath('serpentine', cols, rows, 0), 255).cells, cols);
     let pos = Float32Array.from(home);
@@ -5177,7 +5251,7 @@
 
   let brand = null;
   function makeBrand(seed) {
-    const W = 92, H = 34;
+    const W = 58, H = 22;
     const canvas = makeCanvas(W, H);
     const c = canvas.getContext('2d', { willReadFrequently: true });
     c.fillStyle = '#fff';
@@ -5189,7 +5263,7 @@
     c.fillText('TRIX', W / 2, H * 0.56);
     const result = T.generate({ width: W, height: H, rgba: c.getImageData(0, 0, W, H).data }, {
       path: 'hilbert', iterations: 14, step: 1.6, territoryMode: 'adaptive', packing: 0.72, attempts: 2,
-      autoLevels: false, ink: 0.82, seed, maxSnapshots: 14
+      autoLevels: false, ink: 0.92, seed, maxSnapshots: 14
     });
     brand = { result, start: performance.now() };
     animateBrand();
@@ -5210,8 +5284,8 @@
     for (let i = 0; i < layer.count; i++) {
       const x = positions[2 * i] * k;
       const y = positions[2 * i + 1] * k;
-      c.moveTo(x + k * 0.36, y);
-      c.arc(x, y, k * 0.36, 0, Math.PI * 2);
+      c.moveTo(x + k * 0.4, y);
+      c.arc(x, y, k * 0.4, 0, Math.PI * 2);
     }
     c.fill();
     if (t < 14) requestAnimationFrame(animateBrand);
@@ -5442,7 +5516,7 @@
     window.trix = { state, T, R, applyRecipe, setValue: (target, key, value) => {
       const spec = allSpecs.find(s => s.target === target && s.key === key) || { target, key };
       setValue(spec, value, true);
-    }, savePng, saveSvg, exportCanvas, sceneSvg: () => R.sceneToSvg(getScene(), finalFrame(), {}), play, setTime, toggleStamp, openBooth, closeBooth, takePhoto, loadBlob, recipes: RECIPE_CARDS };
+    }, savePng, saveSvg, exportCanvas, settingsLink, frame: () => currentFrame(), sceneSvg: () => R.sceneToSvg(getScene(), finalFrame(), {}), play, setTime, toggleStamp, openBooth, closeBooth, takePhoto, loadBlob, recipes: RECIPE_CARDS };
   }
 
   init();
