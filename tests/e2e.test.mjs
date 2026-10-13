@@ -159,12 +159,13 @@ describe('trix.html in a browser', { skip: !chromePath && 'Chrome not found (set
     const out = await page.evaluate(() => {
       const canvas = window.trix.exportCanvas(1200);
       const svg = window.trix.sceneSvg();
-      return { w: canvas.width, h: canvas.height, svgLength: svg.length, svg: svg.slice(0, 400), hasCountry: svg.includes('NEDERLAND'), hasValue: svg.includes('80ct'), circles: (svg.match(/<circle /g) || []).length };
+      return { w: canvas.width, h: canvas.height, svgLength: svg.length, svg: svg.slice(0, 400), hasCountry: svg.includes('NEDERLAND'), hasValue: svg.includes('80ct'), circles: (svg.match(/<circle /g) || []).length, gravure: /<pattern id="gravure0"[^>]*rotate\(30\)/.test(svg) && svg.includes('fill="url(#gravure0)"') };
     });
     assert.ok(out.w === 1200 || out.h === 1200);
     assert.match(out.svg, /width="[\d.]+mm"/);
     assert.ok(out.hasCountry && out.hasValue);
     assert.ok(out.circles > 500, `${out.circles} circles`);
+    assert.ok(out.gravure, 'letters printed through a 30° gravure screen');
   });
 
   test('PNG, SVG and movie downloads produce real files', async () => {

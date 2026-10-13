@@ -450,6 +450,7 @@
       animation: rise 0.5s 0.6s both cubic-bezier(.2, .9, .3, 1.2);
     }
     .onboard strong { font-size: 15px; }
+    .onboard-close { position: absolute; top: 6px; right: 6px; width: 28px; height: 28px; }
     .onboard span { color: var(--muted); }
     .onboard div { display: flex; gap: 6px; margin-top: 4px; }
     @keyframes rise { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
@@ -711,6 +712,7 @@
         <span class="stage-badge" id="stageBadge"></span>
         <span class="stage-hint" id="stageHint">Scroll to zoom · drag to pan · double-click to fit</span>
         <div class="onboard" id="onboard" hidden>
+          <button class="btn ghost icon small onboard-close" id="onboardClose" type="button" aria-label="Dismiss">✕</button>
           <strong>Your head here.</strong>
           <span>This sitter is a stand-in. Take a photo or bring one, and watch the dots drop and the box shake.</span>
           <div>
@@ -2479,10 +2481,43 @@
   }
 
   /** Country, value and (optionally) microtext, in pixel space. */
-  function drawLettering(ctx, layout, metrics, stamp, px, py, s, ink, family, microtext) {
+  /**
+   * Gerard Unger's lettering was printed through the rotogravure screen: rows
+   * of dots offset to run at about 30°, sized so that a little ink spread
+   * closes them into solid letters. At a glance it is solid; under the loupe
+   * it is a screen.
+   */
+  const GRAVURE_PITCH = 0.13;   // mm between screen dots (≈ 199 dots across the stamp)
+  const GRAVURE_DOT = 0.6;      // dot radius as a fraction of the pitch
+  const screenTiles = new Map();
+  function gravureFill(ctx, ink, s, px, py, makeCanvas) {
+    const pitch = GRAVURE_PITCH * s;
+    if (pitch < 2.2 || !makeCanvas || typeof DOMMatrix === 'undefined') return ink;
+    let tile = screenTiles.get(ink);
+    if (!tile) {
+      const size = 32;
+      tile = makeCanvas(size, size);
+      const c = tile.getContext('2d');
+      c.fillStyle = ink;
+      const r = size * GRAVURE_DOT;
+      for (const [dx, dy] of [[0, 0], [size, 0], [-size, 0], [0, size], [0, -size]]) {
+        c.beginPath();
+        c.arc(size / 2 + dx, size / 2 + dy, r, 0, TAU);
+        c.fill();
+      }
+      screenTiles.set(ink, tile);
+    }
+    const pattern = ctx.createPattern(tile, 'repeat');
+    if (!pattern || !pattern.setTransform) return ink;
+    pattern.setTransform(new DOMMatrix().translateSelf(px, py).rotateSelf(30).scaleSelf(pitch / tile.width));
+    return pattern;
+  }
+
+  function drawLettering(ctx, layout, metrics, stamp, px, py, s, ink, family, microtext, screen) {
     ctx.save();
-    ctx.fillStyle = ink;
+    ctx.fillStyle = screen ? gravureFill(ctx, ink, s, px, py, screen) : ink;
     drawLetteringGlyphs(ctx, layout, metrics, stamp, px, py, s, family, false);
+    ctx.fillStyle = ink;
     // microtext, only legible under the loupe
     if (microtext) {
       const size = layout.micro.size * s;
@@ -2864,7 +2899,7 @@
         const py = oy + st.y * s;
         if (!visibleRect(px, py, L.width * s, L.height * s)) return;
         const metrics = frame.lettering(st);
-        drawLettering(ctx, L, metrics, st, px, py, s, st.ink || frame.textInk, family, frame.microtext);
+        drawLettering(ctx, L, metrics, st, px, py, s, st.ink || frame.textInk, family, frame.microtext, frame.gravure ? makeCanvas : null);
       });
       if (scene.postmark) {
         const pm = scene.postmark;
@@ -2986,6 +3021,18 @@
     frame.layers.forEach((layer, li) => {
       out.push(`<g id="layer${li}">${svgDots(layer, frame.style, frame.glyphs)}</g>`);
     });
+    const screenIds = new Map();
+    if (scene.kind === 'stamp' && frame.gravure) {
+      const inks = new Set(scene.stamps.map(st => st.ink || frame.textInk));
+      for (const ink of inks) {
+        const id = `gravure${screenIds.size}`;
+        screenIds.set(ink, id);
+        const p = GRAVURE_PITCH;
+        const r = p * GRAVURE_DOT;
+        const dots = [[0, 0], [p, 0], [-p, 0], [0, p], [0, -p]].map(([dx, dy]) => `<circle cx="${num(p / 2 + dx)}" cy="${num(p / 2 + dy)}" r="${num(r)}"/>`).join('');
+        out.push(`<pattern id="${id}" width="${num(p)}" height="${num(p)}" patternUnits="userSpaceOnUse" patternTransform="rotate(30)"><g fill="${ink}">${dots}</g></pattern>`);
+      }
+    }
     if (scene.kind === 'stamp') {
       const pts = [];
       const o = scene.layout.outline;
@@ -3017,9 +3064,10 @@
         out.push(`<use href="#stampPaper" xlink:href="#stampPaper" fill="${frame.paper}"/>`);
         out.push(`<g clip-path="url(#fieldClip)">${layerUses(L.field.x, L.field.y, st.ink)}</g>`);
         const countryFont = L.country.cap / CAP_RATIO;
+        const letterFill = screenIds.has(ink) ? `url(#${screenIds.get(ink)})` : ink;
         const countryLength = m.countryScale < 1 ? m.available : m.countryWidth + m.tracking * Math.max(0, Array.from(st.country).length - 1);
-        out.push(`<text x="${num(L.country.x)}" y="${num(L.country.baseline)}" font-family="${esc(family)}" font-weight="${COUNTRY_WEIGHT}" font-size="${num(countryFont)}" fill="${ink}" textLength="${num(countryLength)}" lengthAdjust="${m.countryScale < 1 ? 'spacingAndGlyphs' : 'spacing'}">${esc(st.country)}</text>`);
-        out.push(`<text transform="translate(${num(L.value.right)} ${num(L.value.baseline)}) rotate(-90)" font-family="${esc(family)}" font-weight="${VALUE_WEIGHT}" font-size="${num(L.value.cap / CAP_RATIO)}" fill="${ink}">${esc(st.value)}</text>`);
+        out.push(`<text x="${num(L.country.x)}" y="${num(L.country.baseline)}" font-family="${esc(family)}" font-weight="${COUNTRY_WEIGHT}" font-size="${num(countryFont)}" fill="${letterFill}" textLength="${num(countryLength)}" lengthAdjust="${m.countryScale < 1 ? 'spacingAndGlyphs' : 'spacing'}">${esc(st.country)}</text>`);
+        out.push(`<text transform="translate(${num(L.value.right)} ${num(L.value.baseline)}) rotate(-90)" font-family="${esc(family)}" font-weight="${VALUE_WEIGHT}" font-size="${num(L.value.cap / CAP_RATIO)}" fill="${letterFill}">${esc(st.value)}</text>`);
         if (frame.microtext) {
           out.push(`<text x="${num(L.micro.x0)}" y="${num(L.micro.y)}" font-family="${esc(family)}" font-size="${num(L.micro.size)}" fill="${ink}" textLength="${num(L.micro.x1 - L.micro.x0)}" lengthAdjust="spacing">${esc(` ${frame.microtext} ·`.repeat(6))}</text>`);
         }
@@ -3133,7 +3181,7 @@
   delete MACHINE_DEFAULTS.maxSnapshots;
   // Pure looks: redrawn instantly, no recomputation.
   const LOOK_DEFAULTS = { style: 'dot', dotSize: 0.8, sizeByTone: 0.5, inkColor: R.SERIES[0].ink, paperColor: '#fbfaf6', glyphs: 'NEDERLAND' };
-  const STAMP_DEFAULTS = { on: false, country: 'NEDERLAND', value: '80ct', sheet: 1, perf: 13.5, knockout: true, microtext: true, postmark: false, place: 'UTRECHT', background: 'kraft' };
+  const STAMP_DEFAULTS = { on: false, country: 'NEDERLAND', value: '80ct', sheet: 1, perf: 13.5, knockout: true, microtext: true, gravure: true, postmark: false, place: 'UTRECHT', background: 'kraft' };
   const TONE_KEYS = new Set(Object.keys(T.TONE_DEFAULTS));
 
   const RECIPE_CARDS = [
@@ -3887,6 +3935,7 @@
       textInk: textInk(),
       glyphs: look.glyphs,
       microtext: state.stamp.microtext ? `TRIX · ${state.machine.seed} · ${new Date().getFullYear()}` : '',
+      gravure: state.stamp.gravure,
       lettering,
       pen: t < 0 ? pen : null,
       compareImage: state.comparing ? compareImage() : null
@@ -4387,6 +4436,7 @@
       { key: 'sheet', label: 'Sheet', target: 'stamp', type: 'seg', options: [[1, 'Single'], [2, 'Pair'], [4, 'Block'], [16, 'Series of 16']] },
       { key: 'perf', label: 'Perforation', target: 'stamp', min: 10, max: 16, step: 0.25, fmt: v => `${(+v).toFixed(2)} per 2 cm` },
       { key: 'knockout', label: 'Letters open in the dots', target: 'stamp', type: 'toggle' },
+      { key: 'gravure', label: 'Gravure screen in the letters (see the loupe)', target: 'stamp', type: 'toggle' },
       { key: 'microtext', label: 'Microtext with seed', target: 'stamp', type: 'toggle' }
     ],
     envelope: [
@@ -5592,6 +5642,7 @@
     ui.printBtn.addEventListener('click', printScene);
     ui.onboardCamera.addEventListener('click', openBooth);
     ui.onboardUpload.addEventListener('click', () => ui.fileInput.click());
+    document.getElementById('onboardClose').addEventListener('click', () => { ui.onboard.hidden = true; });
     ui.linkBtn.addEventListener('click', copyLink);
     ui.loupeBtn.addEventListener('click', () => setLoupe(!state.loupe));
     ui.stampBtn.addEventListener('click', toggleStamp);
