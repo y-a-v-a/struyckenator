@@ -3629,11 +3629,13 @@
   function defaultCrop() {
     const src = state.source.canvas;
     const aspect = state.machine.aspect;
-    let w = src.width;
+    // tall photos are usually half-length portraits: frame the head, not the chest
+    const tall = src.height > src.width * 1.15;
+    let w = src.width * (tall ? 0.78 : 1);
     let h = w / aspect;
     if (h > src.height) { h = src.height; w = h * aspect; }
     const x = (src.width - w) / 2;
-    const y = clamp(src.height * 0.42 - h / 2, 0, src.height - h);
+    const y = clamp(src.height * (tall ? 0.36 : 0.42) - h / 2, 0, src.height - h);
     return { x, y, w };
   }
 
