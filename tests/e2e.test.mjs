@@ -78,6 +78,10 @@ describe('trix.html in a browser', { skip: !chromePath && 'Chrome not found (set
     assert.deepEqual(network, []);
   });
 
+  test('the first-run card invites a photo while the stand-in sits', async () => {
+    assert.equal(await page.evaluate(() => document.getElementById('onboard').hidden), false);
+  });
+
   test('the stage actually shows ink', async () => {
     // let the opening animation (plot, then shake) finish
     await page.waitForFunction(() => window.trix.state.t >= window.trix.state.result.iterations, { timeout: 10000 });
@@ -104,6 +108,7 @@ describe('trix.html in a browser', { skip: !chromePath && 'Chrome not found (set
       width: window.trix.state.result.width
     }));
     assert.ok(info.name.length > 0 && info.name !== 'placeholder');
+    assert.equal(await page.evaluate(() => document.getElementById('onboard').hidden), true);
     assert.equal(info.width, 160);
     assert.ok(info.dots > 1500 && info.dots < 15000, `${info.dots} dots`);
   });
@@ -194,6 +199,21 @@ describe('trix.html in a browser', { skip: !chromePath && 'Chrome not found (set
     assert.ok(movie.size > 10000, `movie ${movie.size} bytes`);
   });
 
+  test('printing puts the stamp on paper at its true size', async () => {
+    const out = await page.evaluate(() => {
+      let printed = false;
+      const original = window.print;
+      window.print = () => { printed = true; };
+      window.trix.printScene();
+      window.print = original;
+      const svg = document.querySelector('#printArea svg');
+      return { printed, width: svg && svg.getAttribute('width'), note: document.querySelector('#printArea p').textContent };
+    });
+    assert.ok(out.printed);
+    assert.match(out.width, /^[\d.]+mm$/);
+    assert.match(out.note, /20\.8 × 25\.6 mm/);
+  });
+
   test('a series sheet has sixteen stamps in sixteen colours', async () => {
     const out = await page.evaluate(() => {
       window.trix.setValue('stamp', 'sheet', 16);
@@ -252,7 +272,7 @@ describe('trix.html in a browser', { skip: !chromePath && 'Chrome not found (set
   test('the live dot mirror draws dots from the video', async () => {
     await page.evaluate(() => window.trix.openBooth());
     await page.waitForFunction(() => document.getElementById('boothVideo').videoWidth > 0, { timeout: 10000 });
-    await page.click('#boothLive + span');
+    // the live mirror is on by default
     await sleep(1500);
     const inked = await page.evaluate(() => {
       const canvas = document.getElementById('boothDots');
