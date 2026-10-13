@@ -162,6 +162,38 @@ describe('trix.html in a browser', { skip: !chromePath && 'Chrome not found (set
     assert.ok(out.circles > 500, `${out.circles} circles`);
   });
 
+  test('PNG, SVG and movie downloads produce real files', async () => {
+    await page.evaluate(() => {
+      window.__downloads = [];
+      const click = HTMLAnchorElement.prototype.click;
+      HTMLAnchorElement.prototype.click = function () {
+        if (this.download) { window.__downloads.push({ name: this.download, href: this.href }); return undefined; }
+        return click.call(this);
+      };
+    });
+    const grab = () => page.evaluate(async () => {
+      const d = window.__downloads[window.__downloads.length - 1];
+      const blob = await fetch(d.href).then(r => r.blob());
+      return { name: d.name, size: blob.size, type: blob.type };
+    });
+    await page.evaluate(() => window.trix.savePng());
+    await page.waitForFunction(() => window.__downloads.length === 1, { timeout: 10000 });
+    const png = await grab();
+    assert.match(png.name, /^trix-.*\.png$/);
+    assert.ok(png.size > 20000, `png ${png.size} bytes`);
+
+    await page.evaluate(() => window.trix.saveSvg());
+    const svg = await grab();
+    assert.match(svg.name, /\.svg$/);
+    assert.equal(svg.type, 'image/svg+xml');
+
+    await page.evaluate(() => window.trix.saveMovie());
+    await page.waitForFunction(() => window.__downloads.length === 3, { timeout: 20000 });
+    const movie = await grab();
+    assert.match(movie.name, /\.(webm|mp4)$/);
+    assert.ok(movie.size > 10000, `movie ${movie.size} bytes`);
+  });
+
   test('a series sheet has sixteen stamps in sixteen colours', async () => {
     const out = await page.evaluate(() => {
       window.trix.setValue('stamp', 'sheet', 16);
