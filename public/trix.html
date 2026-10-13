@@ -474,11 +474,11 @@
     }
     .play:active { transform: scale(0.94); }
     .play svg { width: 16px; height: 16px; }
-    .scrub { position: relative; height: 42px; }
+    .scrub { position: relative; height: 52px; }
     .scrub canvas { position: absolute; left: 8px; right: 8px; top: 2px; height: 22px; width: calc(100% - 16px); pointer-events: none; }
     .scrub input { position: absolute; left: 0; right: 0; top: 14px; }
     .scrub-labels {
-      position: absolute; left: 8px; right: 8px; bottom: -2px;
+      position: absolute; left: 8px; right: 8px; top: 36px; height: 14px;
       font-family: var(--mono); font-size: 10.5px; color: var(--muted);
       pointer-events: none;
     }
@@ -596,7 +596,11 @@
     .how h3 { font-size: 14px; margin-bottom: 4px; }
     .how p { margin: 0 0 8px; color: var(--ink); max-width: 70ch; }
     .how .lede { font-size: 15px; }
-    .how .meter { font-family: var(--mono); font-size: 12px; margin-top: 6px; color: var(--muted); }
+    .how .meter {
+      font-family: var(--mono); font-size: 12px; line-height: 1.45; margin-top: 6px; color: var(--muted);
+      height: calc(2 * 1.45em); overflow: hidden;
+      font-variant-numeric: tabular-nums;
+    }
     .how .meter b { color: var(--ink); }
 
     .keys { display: grid; grid-template-columns: auto 1fr; gap: 8px 16px; font-size: 13.5px; }
@@ -4190,8 +4194,11 @@
       zoomAt(Math.exp(-event.deltaY * 0.0018), event.clientX - rect.left, event.clientY - rect.top);
     }, { passive: false });
 
+    // Controls floating on the stage (toolbar, welcome card) keep their own clicks:
+    // capturing the pointer for a pan would steal them.
+    const onOverlay = event => event.target.closest('.stage-tools, .onboard');
     stage.addEventListener('pointerdown', event => {
-      if (event.target.closest('.stage-tools')) return;
+      if (onOverlay(event)) return;
       stage.setPointerCapture(event.pointerId);
       pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
       if (pointers.size === 2) {
@@ -4243,7 +4250,7 @@
       loupePointer = null;
     });
     stage.addEventListener('dblclick', event => {
-      if (event.target.closest('.stage-tools')) return;
+      if (onOverlay(event)) return;
       resetView();
     });
   }

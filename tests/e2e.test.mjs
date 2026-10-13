@@ -82,6 +82,53 @@ describe('trix.html in a browser', { skip: !chromePath && 'Chrome not found (set
     assert.equal(await page.evaluate(() => document.getElementById('onboard').hidden), false);
   });
 
+  test('the first-run card buttons work with a real mouse', async () => {
+    // "Take a photo" opens the booth
+    await page.click('#onboardCamera');
+    await sleep(300);
+    assert.equal(await page.evaluate(() => document.getElementById('cameraDialog').open), true, 'booth did not open');
+    await page.evaluate(() => window.trix.closeBooth());
+    await sleep(200);
+    // "Upload" opens the file chooser
+    const [chooser] = await Promise.all([
+      page.waitForFileChooser({ timeout: 3000 }),
+      page.click('#onboardUpload')
+    ]);
+    assert.ok(chooser, 'no file chooser');
+    await chooser.cancel();
+    // ✕ dismisses the card
+    await page.click('#onboardClose');
+    await sleep(100);
+    assert.equal(await page.evaluate(() => document.getElementById('onboard').hidden), true, 'card not dismissed');
+  });
+
+  test('timeline labels stay clear of the buttons below', async () => {
+    const overlap = await page.evaluate(() => {
+      const actions = document.querySelector('.actions').getBoundingClientRect();
+      return Math.max(...[...document.querySelectorAll('#scrubLabels span')].map(span => span.getBoundingClientRect().bottom - actions.top));
+    });
+    assert.ok(overlap <= 0, `labels reach ${overlap.toFixed(1)}px into the button row`);
+  });
+
+  test('the explainer does not hop while its meters update', async () => {
+    await page.evaluate(() => document.getElementById('howBtn').click());
+    const heights = new Set();
+    const meters = new Set();
+    for (let i = 0; i < 40; i++) {
+      const h = await page.evaluate(() => ({
+        dialog: Math.round(document.getElementById('howDialog').getBoundingClientRect().height),
+        walk: Math.round(document.getElementById('howWalkMeter').getBoundingClientRect().height),
+        shake: Math.round(document.getElementById('howShakeMeter').getBoundingClientRect().height)
+      }));
+      heights.add(h.dialog);
+      meters.add(`${h.walk}/${h.shake}`);
+      await sleep(110);
+    }
+    await page.evaluate(() => document.getElementById('howDialog').close());
+    assert.equal(heights.size, 1, `dialog heights seen: ${[...heights].join(', ')}`);
+    assert.equal(meters.size, 1, `meter heights seen: ${[...meters].join(', ')}`);
+  });
+
   test('the stage actually shows ink', async () => {
     // let the opening animation (plot, then shake) finish
     await page.waitForFunction(() => window.trix.state.t >= window.trix.state.result.iterations, { timeout: 10000 });
@@ -353,6 +400,11 @@ describe('trix.html in a browser', { skip: !chromePath && 'Chrome not found (set
     await freshPage({ width: 390, height: 844, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
     assert.ok(overflow <= 0, `page is ${overflow}px too wide`);
+    const labels = await page.evaluate(() => {
+      const actions = document.querySelector('.actions').getBoundingClientRect();
+      return Math.max(...[...document.querySelectorAll('#scrubLabels span')].map(span => span.getBoundingClientRect().bottom - actions.top));
+    });
+    assert.ok(labels <= 0, `on a phone the labels reach ${labels.toFixed(1)}px into the button row`);
   });
 
   test('no errors were logged along the way', () => {
