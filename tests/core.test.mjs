@@ -153,6 +153,24 @@ describe('tone mapping', () => {
     assert.ok(opened < neutral);
   });
 
+  test('auto tone brings dark and bright faces to the same lightness', () => {
+    const W = 48, H = 48;
+    const face = base => Float32Array.from({ length: W * H }, (_, i) => {
+      const x = i % W, y = Math.floor(i / W);
+      return Math.min(1, base + 0.15 * Math.sin(x / 3) * Math.cos(y / 4) + (x > 30 ? 0.3 : 0));
+    });
+    const opts = { autoLevels: false, autoTone: true, toneTarget: 0.7, fadeY: 0.5 };
+    const centreMedian = density => {
+      const vals = [];
+      for (let y = 18; y < 30; y++) for (let x = 18; x < 30; x++) vals.push(1 - density[y * W + x]);
+      return T.quantile(vals, 0.5);
+    };
+    const dark = centreMedian(T.toneMap(face(0.2), W, H, opts));
+    const bright = centreMedian(T.toneMap(face(0.6), W, H, opts));
+    assert.ok(Math.abs(dark - 0.7) < 0.08, `dark ${dark}`);
+    assert.ok(Math.abs(bright - 0.7) < 0.08, `bright ${bright}`);
+  });
+
   test('invert swaps ink and paper', () => {
     const lum = new Float32Array(16).fill(0.2);
     const density = T.toneMap(lum, 4, 4, { autoLevels: false, invert: true })[0];

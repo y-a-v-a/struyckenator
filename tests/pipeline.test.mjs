@@ -80,6 +80,17 @@ describe('photographs in test-images/', { skip: images.length === 0 && 'no test 
       }
     });
 
+    test(`${name}: auto tone gives a balanced portrait without hand tuning`, () => {
+      const input = loadGrid(file);
+      const result = T.generate(input, Object.assign({}, T.RECIPES.hilbert, {
+        autoTone: true, toneTarget: 0.72, contrast: 1.1, sharpen: 2, clarity: 0.8, fade: 1, fadeRadius: 0.46, fadeY: 0.45, ink: 0.9, seed: name
+      }));
+      saveSheet(`${name}-autotone`, result);
+      const share = result.layers[0].count / (result.width * result.height);
+      assert.ok(share > 0.08 && share < 0.24, `${(share * 100).toFixed(1)}% of cells inked`);
+      assert.ok(toneFidelity(result) > 0.85);
+    });
+
     test(`${name}: identical seeds give identical portraits`, () => {
       const input = loadGrid(file, 96);
       const a = T.generate(input, Object.assign({}, PORTRAIT_TONE, { seed: 'plate-1' }));

@@ -1079,6 +1079,8 @@
     brightness: 0,        // -1 .. 1
     contrast: 1,          // 0 .. 3, linear around middle grey
     gamma: 1,             // > 1 opens up the midtones, < 1 darkens them
+    autoTone: false,      // choose the midtone curve from the image itself
+    toneTarget: 0.72,     // auto tone: median lightness inside the oval
     clarity: 0,           // large-radius local contrast
     sharpen: 0,           // unsharp mask amount
     sharpenRadius: 1,     // in cells
@@ -1131,13 +1133,36 @@
     }
     const black = clamp(o.black, 0, 0.98);
     const white = clamp(o.white, black + 0.01, 1);
-    const gammaExp = 1 / clamp(o.gamma, 0.05, 20);
     for (let i = 0; i < count; i++) {
       let x = (lum[i] - lo) / (hi - lo);
       x = (x - black) / (white - black);
       x = (x - 0.5) * o.contrast + 0.5 + o.brightness;
-      v[i] = Math.pow(clamp01(x), gammaExp);
+      v[i] = clamp01(x);
     }
+
+    // Auto tone: pick the midtone curve that brings the median tone inside
+    // the portrait oval to a target lightness, so dark film scans and bright
+    // selfies both start from a stamp-like balance. The gamma slider then
+    // adjusts relative to that.
+    const mask = o.fade > 0 ? ovalMask(width, height, o) : null;
+    let autoExp = 1;
+    if (o.autoTone) {
+      // measure the face: the inner part of the oval, not hair and shoulders
+      const inside = [];
+      const rx = Math.max(1e-3, o.fadeRadius * width);
+      const ry = rx / Math.max(0.05, o.fadeAspect);
+      for (let y = 0; y < height; y++) {
+        for (let x = 0; x < width; x++) {
+          const dx = (x + 0.5 - o.fadeX * width) / rx;
+          const dy = (y + 0.5 - o.fadeY * height) / ry;
+          if (dx * dx + dy * dy < 0.36) inside.push(v[y * width + x]);
+        }
+      }
+      const median = quantile(inside.length > 16 ? inside : v, 0.5);
+      if (median > 0.02 && median < 0.98) autoExp = clamp(Math.log(clamp01(o.toneTarget)) / Math.log(median), 0.25, 4);
+    }
+    const gammaExp = autoExp / clamp(o.gamma, 0.05, 20);
+    if (gammaExp !== 1) for (let i = 0; i < count; i++) v[i] = Math.pow(v[i], gammaExp);
 
     if (o.clarity) {
       const wide = blur(v, width, height, Math.max(2, 0.06 * Math.max(width, height)));
@@ -1148,7 +1173,6 @@
       for (let i = 0; i < count; i++) v[i] += o.sharpen * (v[i] - near[i]);
     }
 
-    const mask = o.fade > 0 ? ovalMask(width, height, o) : null;
     const ink = clamp(o.ink, 0, 4);
     const density = new Float32Array(count);
     for (let i = 0; i < count; i++) {
@@ -3224,7 +3248,9 @@
     autoLevels: true,
     brightness: 0,
     contrast: 1.1,
-    gamma: 1.6,
+    gamma: 1,
+    autoTone: true,
+    toneTarget: 0.72,
     clarity: 0.8,
     sharpen: 2,
     sharpenRadius: 1,
@@ -3523,28 +3549,39 @@
     return canvas;
   }
 
+  /** Decode with the best tool the browser has: bitmap (EXIF-aware), plain bitmap, or <img>. */
+  async function decodeToCanvas(blob) {
+    if (window.createImageBitmap) {
+      for (const options of [{ imageOrientation: 'from-image' }, undefined]) {
+        try {
+          const bitmap = await createImageBitmap(blob, options);
+          const canvas = normaliseImage(bitmap, bitmap.width, bitmap.height);
+          if (bitmap.close) bitmap.close();
+          return canvas;
+        } catch (err) { /* try the next way */ }
+      }
+    }
+    const url = URL.createObjectURL(blob);
+    try {
+      const img = await new Promise((resolve, reject) => {
+        const el = new Image();
+        el.onload = () => resolve(el);
+        el.onerror = reject;
+        el.src = url;
+      });
+      return normaliseImage(img, img.naturalWidth, img.naturalHeight);
+    } finally {
+      URL.revokeObjectURL(url);
+    }
+  }
+
   async function loadBlob(blob, name) {
     if (!blob || !/^image\//.test(blob.type || 'image/')) {
       toast('That does not look like a photo.');
       return;
     }
     try {
-      let canvas;
-      if (window.createImageBitmap) {
-        const bitmap = await createImageBitmap(blob, { imageOrientation: 'from-image' });
-        canvas = normaliseImage(bitmap, bitmap.width, bitmap.height);
-        bitmap.close && bitmap.close();
-      } else {
-        const url = URL.createObjectURL(blob);
-        const img = await new Promise((resolve, reject) => {
-          const el = new Image();
-          el.onload = () => resolve(el);
-          el.onerror = reject;
-          el.src = url;
-        });
-        canvas = normaliseImage(img, img.naturalWidth, img.naturalHeight);
-        URL.revokeObjectURL(url);
-      }
+      const canvas = await decodeToCanvas(blob);
       setSource(canvas, name || 'photo', { remember: true });
       toast('Photo loaded — shaking…');
     } catch (err) {
@@ -4566,10 +4603,11 @@
     tone: [
       { key: 'brightness', label: 'Brightness', min: -0.5, max: 0.5, step: 0.01, fmt: signed },
       { key: 'contrast', label: 'Contrast', min: 0.3, max: 2.5, step: 0.01, fmt: fixed(2) },
-      { key: 'gamma', label: 'Midtones', min: 0.4, max: 3, step: 0.01, fmt: v => `γ ${(+v).toFixed(2)}`, help: 'Higher keeps skin light and empty, like the stamp' },
+      { key: 'gamma', label: 'Midtones', min: 0.4, max: 3, step: 0.01, fmt: v => `γ ${(+v).toFixed(2)}${state.machine.autoTone ? ' · on auto' : ''}`, help: 'Higher keeps skin light and empty, like the stamp' },
       { key: 'clarity', label: 'Clarity', min: 0, max: 2, step: 0.01, fmt: fixed(2), help: 'Large-scale local contrast' },
       { key: 'sharpen', label: 'Detail', min: 0, max: 4, step: 0.05, fmt: fixed(2), help: 'Eyes, lips and nostrils earn extra dots' },
       { key: 'ink', label: 'Dot economy', min: 0.2, max: 1.4, step: 0.01, fmt: pct, help: 'Struycken wanted as few dots as possible' },
+      { key: 'autoTone', label: 'Auto tone (measures the face in the oval)', type: 'toggle' },
       { key: 'autoLevels', label: 'Auto levels', type: 'toggle' },
       { key: 'invert', label: 'Negative', type: 'toggle' }
     ],
