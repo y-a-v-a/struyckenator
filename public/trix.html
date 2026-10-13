@@ -460,7 +460,7 @@
 
     .timeline {
       display: grid;
-      grid-template-columns: auto 1fr auto;
+      grid-template-columns: auto 1fr auto auto;
       gap: 12px;
       align-items: center;
       margin-top: 12px;
@@ -484,6 +484,10 @@
     }
     .scrub-labels span { position: absolute; white-space: nowrap; padding-left: 3px; border-left: 1px solid var(--line-strong); line-height: 1.2; }
     .scrub-labels span:last-child { transform: translateX(-100%); border-left: 0; padding-left: 0; padding-right: 3px; border-right: 1px solid var(--line-strong); }
+    #soundBtn .waves { display: none; }
+    #soundBtn[aria-pressed="true"] .waves { display: inline; }
+    #soundBtn[aria-pressed="true"] .mute { display: none; }
+    #soundBtn[aria-pressed="true"] { background: transparent; color: var(--ink); }
     .iteration-out { font-family: var(--mono); font-size: 12px; color: var(--muted); min-width: 64px; text-align: right; font-variant-numeric: tabular-nums; }
 
     .actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; align-items: center; }
@@ -743,6 +747,9 @@
           <div class="scrub-labels" id="scrubLabels"></div>
         </div>
         <output class="iteration-out" id="iterationOut">—</output>
+        <button class="btn ghost icon" id="soundBtn" type="button" aria-pressed="false" title="Sound: the pen ticks, the marbles rattle" aria-label="Sound">
+          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 6h2.4L8 3.4v9.2L4.9 10H2.5z" fill="currentColor"/><path class="waves" d="M10.4 5.6a3.4 3.4 0 0 1 0 4.8M12.2 3.9a5.8 5.8 0 0 1 0 8.2" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><path class="mute" d="M10.5 6l4 4M14.5 6l-4 4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+        </button>
       </div>
 
       <div class="actions">
@@ -853,8 +860,8 @@
         <div class="row inline"><label for="boothMirror">Mirror</label><label class="switch"><input type="checkbox" id="boothMirror" checked><span></span></label></div>
         <select id="boothDevice" aria-label="Camera" hidden></select>
         <p class="booth-error" id="boothError" hidden></p>
-        <button class="shutter" id="shutterBtn" type="button" aria-label="Take photo"></button>
-        <p style="margin:0;text-align:center;color:var(--faint);font-size:12px">Space or Enter takes the photo</p>
+        <button class="shutter" id="shutterBtn" type="button" aria-label="Take photo" autofocus></button>
+        <p style="margin:0;text-align:center;color:var(--faint);font-size:12px">The shutter, or Space, takes the photo</p>
       </div>
     </div>
   </dialog>
@@ -1730,6 +1737,7 @@
     const twoOpt = () => {
       let improved = false;
       for (let i = 0; i < n; i++) {
+        if ((i & 1023) === 0 && i && now() - start > o.budgetMs) return improved;
         const a = order[i];
         // successor side: edges (a,b) and (c,d) become (a,c) and (b,d)
         const b = order[(i + 1) % n];
@@ -1801,21 +1809,31 @@
             }
           }
           if (!best) continue;
-          const segment = Array.from(order.subarray(i, i + len));
-          if (best.flip) segment.reverse();
-          const rest = [];
-          for (let m = 0; m < n; m++) if (m < i || m >= i + len) rest.push(order[m]);
-          const anchor = order[best.j];
-          let w = 0;
-          for (let m = 0; m < rest.length; m++) {
-            order[w++] = rest[m];
-            if (rest[m] === anchor) for (const v of segment) order[w++] = v;
-          }
-          for (let m = 0; m < n; m++) where[order[m]] = m;
+          moveSegment(i, len, best.j, best.flip);
           improved = true;
+          if ((i & 255) === 0 && now() - start > o.budgetMs) return improved;
         }
       }
       return improved;
+    };
+
+    /** Move order[i … i+len-1] to just after position j, shifting only what lies between. */
+    const moveSegment = (i, len, j, flip) => {
+      const segment = Array.from(order.subarray(i, i + len));
+      if (flip) segment.reverse();
+      let from, to;
+      if (j > i) {
+        // shift (i+len … j) left by len, segment lands on (j-len+1 … j)
+        order.copyWithin(i, i + len, j + 1);
+        for (let m = 0; m < len; m++) order[j - len + 1 + m] = segment[m];
+        from = i; to = j;
+      } else {
+        // shift (j+1 … i-1) right by len, segment lands on (j+1 … j+len)
+        order.copyWithin(j + 1 + len, j + 1, i);
+        for (let m = 0; m < len; m++) order[j + 1 + m] = segment[m];
+        from = j + 1; to = i + len - 1;
+      }
+      for (let m = from; m <= to; m++) where[order[m]] = m;
     };
 
     for (let pass = 0; pass < o.passes; pass++) {
@@ -2573,13 +2591,13 @@
    * roughened with seeded speckle so it looks hand-struck, then multiplied
    * onto the scene.
    */
-  function drawPostmark(ctx, mark, s, makeCanvas, family) {
+  function renderPostmark(mark, s, makeCanvas, family) {
     const radius = mark.r * s;
     const waveLength = mark.waves ? mark.r * 3.3 * s : 0;
     const pad = 4;
     const w = Math.ceil(radius * 2 + waveLength + pad * 2 + radius * 0.3);
     const h = Math.ceil(radius * 2 + pad * 2);
-    if (w < 8 || h < 8 || w > 8000 || h > 8000) return;
+    if (w < 8 || h < 8 || w > 8000 || h > 8000) return null;
     const canvas = makeCanvas(w, h);
     const c = canvas.getContext('2d');
     const cx = pad + radius;
@@ -2640,12 +2658,31 @@
     c.fillStyle = fade;
     c.fillRect(0, 0, w, h);
 
+    return { canvas, cx, cy };
+  }
+
+  const postmarkCache = new Map();
+  const POSTMARK_MAX_SCALE = 48; // px per mm; beyond this the cached image is scaled up
+
+  /** Draw the postmark from a cache keyed by its look and a rounded scale. */
+  function drawPostmark(ctx, mark, s, makeCanvas, family) {
+    const drawScale = Math.min(POSTMARK_MAX_SCALE, Math.max(1, Math.round(s * 2) / 2));
+    const key = `${drawScale}|${mark.seed}|${mark.place}|${mark.date}|${mark.time}|${mark.color}|${mark.waves}|${family}`;
+    let entry = postmarkCache.get(key);
+    if (!entry) {
+      entry = renderPostmark(mark, drawScale, makeCanvas, family);
+      if (!entry) return;
+      postmarkCache.set(key, entry);
+      if (postmarkCache.size > 6) postmarkCache.delete(postmarkCache.keys().next().value);
+    }
+    const k = s / drawScale;
     ctx.save();
     ctx.translate(mark.x, mark.y);
     ctx.rotate(mark.rotation);
+    ctx.scale(k, k);
     ctx.globalAlpha = 0.86;
     ctx.globalCompositeOperation = 'multiply';
-    ctx.drawImage(canvas, -cx, -cy);
+    ctx.drawImage(entry.canvas, -entry.cx, -entry.cy);
     ctx.restore();
   }
 
@@ -2880,7 +2917,7 @@
             style: frame.style,
             color: field.ink && !layer.process ? field.ink : layer.color,
             cull,
-            hidden: scene.kind === 'stamp' ? layer.hidden : null,
+            hidden: scene.kind === 'stamp' && layer.hiddenByValue ? layer.hiddenByValue.get(scene.stamps[index].value) : null,
             glyphs: frame.glyphs,
             makeCanvas,
             font: family
@@ -2943,22 +2980,25 @@
   const esc = text => String(text).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 
   /** SVG markup for one dot layer, in cell units (scaled by the caller). */
-  function svgDots(layer, style, glyphs) {
+  function svgDots(layer, style, glyphs, glowId) {
     const { positions, visible, radii, angles, order, hidden } = layer;
     const parts = [];
     const p = i => [positions[2 * i], positions[2 * i + 1]];
     if (style === 'line') {
-      const pts = [];
+      // one path; the pen lifts where letters knock dots out
+      let d = '';
+      let down = false;
       for (let q = 0; q < visible; q++) {
         const i = order ? order[q] : q;
-        if (hidden && hidden[i]) continue;
+        if (hidden && hidden[i]) { down = false; continue; }
         const [x, y] = p(i);
-        pts.push(`${num(x)},${num(y)}`);
+        d += `${down ? 'L' : 'M'}${num(x)} ${num(y)}`;
+        down = true;
       }
       let mean = 0;
       for (let i = 0; i < visible; i++) mean += radii[i];
       mean /= Math.max(1, visible);
-      return `<polyline points="${pts.join(' ')}" fill="none" stroke="currentColor" stroke-width="${num(mean * 0.9)}" stroke-linejoin="round" stroke-linecap="round"/>`;
+      return `<path d="${d}" fill="none" stroke="currentColor" stroke-width="${num(mean * 0.9)}" stroke-linejoin="round" stroke-linecap="round"/>`;
     }
     const text = (glyphs || 'TRIX').replace(/\s+/g, '') || 'TRIX';
     let d = '';
@@ -2993,7 +3033,7 @@
           parts.push(`<text x="${num(x)}" y="${num(y)}" font-size="${num(r * 2.9)}" text-anchor="middle" dominant-baseline="central" font-weight="700">${esc(text[i % text.length])}</text>`);
           break;
         case 'glow':
-          parts.push(`<circle cx="${num(x)}" cy="${num(y)}" r="${num(r * 2.1)}" fill="url(#glow)"/>`);
+          parts.push(`<circle cx="${num(x)}" cy="${num(y)}" r="${num(r * 2.1)}" fill="url(#${glowId || 'glow0'})"/>`);
           break;
         default:
           parts.push(`<circle cx="${num(x)}" cy="${num(y)}" r="${num(r)}"/>`);
@@ -3015,11 +3055,32 @@
     out.push(`<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="${num(W)}mm" height="${num(H)}mm" viewBox="0 0 ${num(W)} ${num(H)}">`);
     out.push(`<title>${esc(opts.title || 'Trix dot portrait')}</title>`);
     out.push('<defs>');
-    if (frame.style === 'glow') {
-      out.push('<radialGradient id="glow"><stop offset="0" stop-color="currentColor" stop-opacity="1"/><stop offset="0.4" stop-color="currentColor" stop-opacity="0.35"/><stop offset="1" stop-color="currentColor" stop-opacity="0"/></radialGradient>');
+    // Dot fields are defined once and reused; stamps whose lettering knocks out
+    // different dots (a series has different values) get their own variant.
+    const variantOf = new Map(); // stamp value → variant index
+    const variants = [];         // [{ key, hiddenFor: layerIndex → hidden }]
+    const values = scene.kind === 'stamp' ? scene.stamps.map(st => st.value) : [null];
+    for (const value of values) {
+      if (variantOf.has(value)) continue;
+      const hiddenSets = frame.layers.map(layer => (layer.hiddenByValue && value !== null ? layer.hiddenByValue.get(value) : null));
+      const key = hiddenSets.map(h => (h ? Array.from(h).join('') : '-')).join('|');
+      let index = variants.findIndex(v => v.key === key);
+      if (index < 0) {
+        index = variants.length;
+        variants.push({ key, hiddenSets });
+      }
+      variantOf.set(value, index);
     }
     frame.layers.forEach((layer, li) => {
-      out.push(`<g id="layer${li}">${svgDots(layer, frame.style, frame.glyphs)}</g>`);
+      if (frame.style === 'glow') {
+        // gradients do not inherit colour from the <use> that shows them: one per ink
+        const c = esc(layer.color);
+        out.push(`<radialGradient id="glow${li}"><stop offset="0" stop-color="${c}" stop-opacity="1"/><stop offset="0.4" stop-color="${c}" stop-opacity="0.35"/><stop offset="1" stop-color="${c}" stop-opacity="0"/></radialGradient>`);
+      }
+      variants.forEach((variant, vi) => {
+        const view = Object.assign({}, layer, { hidden: variant.hiddenSets[li] });
+        out.push(`<g id="layer${li}v${vi}">${svgDots(view, frame.style, frame.glyphs, `glow${li}`)}</g>`);
+      });
     });
     const screenIds = new Map();
     if (scene.kind === 'stamp' && frame.gravure) {
@@ -3030,7 +3091,7 @@
         const p = GRAVURE_PITCH;
         const r = p * GRAVURE_DOT;
         const dots = [[0, 0], [p, 0], [-p, 0], [0, p], [0, -p]].map(([dx, dy]) => `<circle cx="${num(p / 2 + dx)}" cy="${num(p / 2 + dy)}" r="${num(r)}"/>`).join('');
-        out.push(`<pattern id="${id}" width="${num(p)}" height="${num(p)}" patternUnits="userSpaceOnUse" patternTransform="rotate(30)"><g fill="${ink}">${dots}</g></pattern>`);
+        out.push(`<pattern id="${id}" width="${num(p)}" height="${num(p)}" patternUnits="userSpaceOnUse" patternTransform="rotate(30)"><g fill="${esc(ink)}">${dots}</g></pattern>`);
       }
     }
     if (scene.kind === 'stamp') {
@@ -3044,13 +3105,14 @@
     out.push('</defs>');
 
     const bg = scene.kind === 'field' ? frame.paper : (scene.background === 'none' ? null : BACKGROUND_COLOURS[scene.background]);
-    if (bg) out.push(`<rect width="${num(W)}" height="${num(H)}" fill="${bg}"/>`);
+    if (bg) out.push(`<rect width="${num(W)}" height="${num(H)}" fill="${esc(bg)}"/>`);
 
     const k = scene.fields[0].w / scene.gridWidth;
-    const layerUses = (fx, fy, inkOverride) => frame.layers.map((layer, li) => {
+    const layerUses = (fx, fy, inkOverride, value) => frame.layers.map((layer, li) => {
+      const ref = `layer${li}v${variantOf.get(value === undefined ? null : value) || 0}`;
       const color = inkOverride && !layer.process ? inkOverride : layer.color;
       const blend = layer.blend && layer.blend !== 'source-over' ? ` style="mix-blend-mode:${layer.blend === 'lighter' ? 'screen' : layer.blend}"` : '';
-      return `<use href="#layer${li}" xlink:href="#layer${li}" color="${color}" fill="${color}" transform="translate(${num(fx)} ${num(fy)}) scale(${num(k)})"${blend}/>`;
+      return `<use href="#${ref}" xlink:href="#${ref}" color="${esc(color)}" fill="${esc(color)}" transform="translate(${num(fx)} ${num(fy)}) scale(${num(k)})"${blend}/>`;
     }).join('');
 
     if (scene.kind === 'field') {
@@ -3061,15 +3123,15 @@
         const ink = st.ink || frame.textInk;
         const m = frame.lettering(st);
         out.push(`<g transform="translate(${num(st.x)} ${num(st.y)})">`);
-        out.push(`<use href="#stampPaper" xlink:href="#stampPaper" fill="${frame.paper}"/>`);
-        out.push(`<g clip-path="url(#fieldClip)">${layerUses(L.field.x, L.field.y, st.ink)}</g>`);
+        out.push(`<use href="#stampPaper" xlink:href="#stampPaper" fill="${esc(frame.paper)}"/>`);
+        out.push(`<g clip-path="url(#fieldClip)">${layerUses(L.field.x, L.field.y, st.ink, st.value)}</g>`);
         const countryFont = L.country.cap / CAP_RATIO;
-        const letterFill = screenIds.has(ink) ? `url(#${screenIds.get(ink)})` : ink;
+        const letterFill = screenIds.has(ink) ? `url(#${screenIds.get(ink)})` : esc(ink);
         const countryLength = m.countryScale < 1 ? m.available : m.countryWidth + m.tracking * Math.max(0, Array.from(st.country).length - 1);
         out.push(`<text x="${num(L.country.x)}" y="${num(L.country.baseline)}" font-family="${esc(family)}" font-weight="${COUNTRY_WEIGHT}" font-size="${num(countryFont)}" fill="${letterFill}" textLength="${num(countryLength)}" lengthAdjust="${m.countryScale < 1 ? 'spacingAndGlyphs' : 'spacing'}">${esc(st.country)}</text>`);
         out.push(`<text transform="translate(${num(L.value.right)} ${num(L.value.baseline)}) rotate(-90)" font-family="${esc(family)}" font-weight="${VALUE_WEIGHT}" font-size="${num(L.value.cap / CAP_RATIO)}" fill="${letterFill}">${esc(st.value)}</text>`);
         if (frame.microtext) {
-          out.push(`<text x="${num(L.micro.x0)}" y="${num(L.micro.y)}" font-family="${esc(family)}" font-size="${num(L.micro.size)}" fill="${ink}" textLength="${num(L.micro.x1 - L.micro.x0)}" lengthAdjust="spacing">${esc(` ${frame.microtext} ·`.repeat(6))}</text>`);
+          out.push(`<text x="${num(L.micro.x0)}" y="${num(L.micro.y)}" font-family="${esc(family)}" font-size="${num(L.micro.size)}" fill="${esc(ink)}" textLength="${num(L.micro.x1 - L.micro.x0)}" lengthAdjust="spacing">${esc(` ${frame.microtext} ·`.repeat(6))}</text>`);
         }
         out.push('</g>');
       });
@@ -3308,8 +3370,23 @@
    * queued one; a job that has been running for a while is killed outright
    * (respawning a worker is cheaper than waiting for a stale portrait).
    */
-  function createEngine(onResult, onProgress) {
+  function createEngine(onResult, onProgress, onFailure) {
     const engine = { worker: null, busy: false, startedAt: 0, current: 0, pending: null, nextId: 1 };
+
+    /** The current job is done (or dead): run the newest queued job, if any. */
+    const finish = (job, result) => {
+      engine.busy = false;
+      if (engine.pending) {
+        const next = engine.pending;
+        engine.pending = null;
+        if (job && job.meta.animate) next.meta.animate = true;
+        start(next);
+      } else if (result) {
+        onResult(result, job);
+      } else if (onFailure) {
+        onFailure(job);
+      }
+    };
     const attach = () => {
       engine.worker = spawnWorker();
       if (!engine.worker) return;
@@ -3317,19 +3394,12 @@
         const msg = event.data;
         if (msg.id !== engine.current) return;
         if (msg.type === 'progress') { if (onProgress) onProgress(msg); return; }
-        engine.busy = false;
-        const job = engine.currentJob;
-        if (engine.pending) {
-          const next = engine.pending;
-          engine.pending = null;
-          start(next);
-        } else {
-          onResult(msg.result, job);
-        }
+        finish(engine.currentJob, msg.result);
       };
       engine.worker.onerror = event => {
         console.error('[trix] worker error', event.message);
-        engine.busy = false;
+        event.preventDefault();
+        finish(engine.currentJob, null);
       };
     };
     const start = job => {
@@ -3338,10 +3408,11 @@
       engine.current = job.id;
       engine.currentJob = job;
       if (!engine.worker) {
+        // no workers: run on the main thread, but still let newer requests win
         setTimeout(() => {
-          const result = T.generate(job.input, job.settings);
-          engine.busy = false;
-          onResult(result, job);
+          let result = null;
+          try { result = T.generate(job.input, job.settings); } catch (err) { console.error('[trix] machine failed', err); }
+          if (engine.current === job.id) finish(job, result);
         }, 0);
         return;
       }
@@ -3350,13 +3421,16 @@
     attach();
     engine.run = (input, settings, meta) => {
       const job = { id: engine.nextId++, input, settings, meta: meta || {} };
+      if (engine.pending && engine.pending.meta.animate) job.meta.animate = true;
       if (engine.busy) {
         if (engine.worker && performance.now() - engine.startedAt > 220) {
+          // a stale job has run long enough: kill it, forget anything queued, run the newest
           engine.worker.terminate();
+          if (engine.currentJob && engine.currentJob.meta.animate) job.meta.animate = true;
+          engine.pending = null;
           attach();
           start(job);
         } else {
-          if (engine.pending && engine.pending.meta.animate) job.meta.animate = true;
           engine.pending = job;
         }
         return;
@@ -3842,14 +3916,16 @@
    * Mask of the stamp lettering (with a small halo) in stamp millimetres,
    * used to knock dots out of the letters like Unger's open letters.
    */
-  let knockoutCache = null;
-  function knockoutMask() {
+  const knockoutCache = new Map();
+
+  /** Mask of one stamp's lettering for a given value (series stamps differ). */
+  function knockoutMask(value) {
     const scene = getScene();
     if (scene.kind !== 'stamp' || !state.stamp.knockout) return null;
     const L = scene.layout;
-    const st = { country: state.stamp.country, value: scene.stamps[0].value };
+    const st = { country: state.stamp.country, value };
     const key = `${st.country}|${st.value}|${L.field.h}|${fontsReady}|${state.stamp.perf}`;
-    if (knockoutCache && knockoutCache.key === key) return knockoutCache;
+    if (knockoutCache.has(key)) return knockoutCache.get(key);
     const ppm = 14;
     const canvas = makeCanvas(L.width * ppm, L.height * ppm);
     const c = canvas.getContext('2d', { willReadFrequently: true });
@@ -3863,12 +3939,13 @@
     const data = c.getImageData(0, 0, canvas.width, canvas.height).data;
     const mask = new Uint8Array(canvas.width * canvas.height);
     for (let i = 0; i < mask.length; i++) mask[i] = data[4 * i + 3] > 40 ? 1 : 0;
-    knockoutCache = { key, mask, w: canvas.width, h: canvas.height, ppm, field: L.field };
-    return knockoutCache;
+    const entry = { mask, w: canvas.width, h: canvas.height, ppm, field: L.field };
+    knockoutCache.set(key, entry);
+    return entry;
   }
 
-  function hiddenDots(positions, count, W, H) {
-    const km = knockoutMask();
+  function hiddenDots(positions, count, W, H, value) {
+    const km = knockoutMask(value);
     if (!km) return null;
     const hidden = new Uint8Array(count);
     const sx = km.field.w / W;
@@ -3880,6 +3957,16 @@
       if (mx >= 0 && my >= 0 && mx < km.w && my < km.h && km.mask[my * km.w + mx]) { hidden[i] = 1; any = true; }
     }
     return any ? hidden : null;
+  }
+
+  /** Hidden dots per distinct stamp value on the sheet (null where nothing overlaps). */
+  function hiddenByValue(positions, count, W, H) {
+    if (!state.stamp.on || !state.stamp.knockout) return null;
+    const map = new Map();
+    for (const st of getScene().stamps) {
+      if (!map.has(st.value)) map.set(st.value, hiddenDots(positions, count, W, H, st.value));
+    }
+    return map;
   }
 
   function getScene() {
@@ -3900,7 +3987,7 @@
   function invalidateScene() {
     sceneCache = null;
     frameCache = null;
-    knockoutCache = null;
+    knockoutCache.clear();
   }
 
   function buildFrame(t) {
@@ -3925,7 +4012,7 @@
         color: layerColor(layer),
         blend: layerBlend(layer),
         process,
-        hidden: state.stamp.on ? hiddenDots(positions, layer.count, W, H) : null
+        hiddenByValue: hiddenByValue(positions, layer.count, W, H)
       };
     });
     return {
@@ -4222,9 +4309,14 @@
     const plotMs = 1300;
     const shakeMs = n ? clamp(n * 90, 900, 2600) : 0;
     const start = performance.now();
+    let previous = start;
     ui.playBtn.classList.add('playing');
+    if (sound.on) audioContext();
+    sound.lastVisible = 0;
     const tick = now => {
       const e = now - start;
+      const dt = Math.min(100, now - previous);
+      previous = now;
       let t;
       if (e < plotMs) {
         const f = e / plotMs;
@@ -4240,9 +4332,89 @@
         return;
       }
       setTime(t);
+      soundFrame(t, dt);
       playHandle = requestAnimationFrame(tick);
     };
     playHandle = requestAnimationFrame(tick);
+  }
+
+  /* =========================================================== *
+   *  Sound: the plotter pen ticks, the marbles rattle            *
+   * =========================================================== */
+
+  const sound = { on: storageGet('trix:sound') === 'on', ctx: null, clicks: [], lastVisible: 0, carry: 0 };
+
+  function audioContext() {
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    if (!AudioCtx) return null;
+    if (!sound.ctx) {
+      sound.ctx = new AudioCtx();
+      // a few tiny clicks: decaying noise, each a little different
+      const rng = T.createRng('marbles-sound');
+      for (let v = 0; v < 6; v++) {
+        const length = Math.floor(sound.ctx.sampleRate * (0.012 + v * 0.003));
+        const buffer = sound.ctx.createBuffer(1, length, sound.ctx.sampleRate);
+        const data = buffer.getChannelData(0);
+        for (let i = 0; i < length; i++) data[i] = (rng() * 2 - 1) * Math.pow(1 - i / length, 6);
+        sound.clicks.push(buffer);
+      }
+    }
+    if (sound.ctx.state === 'suspended') sound.ctx.resume();
+    return sound.ctx;
+  }
+
+  /** One click: a filtered noise burst. High and short for the pen, glassy for marbles. */
+  function click(at, frequency, gain) {
+    const ac = sound.ctx;
+    const src = ac.createBufferSource();
+    src.buffer = sound.clicks[Math.floor(Math.random() * sound.clicks.length)];
+    src.playbackRate.value = 0.8 + Math.random() * 0.5;
+    const filter = ac.createBiquadFilter();
+    filter.type = 'bandpass';
+    filter.frequency.value = frequency;
+    filter.Q.value = 6;
+    const level = ac.createGain();
+    level.gain.value = gain;
+    src.connect(filter).connect(level).connect(ac.destination);
+    src.start(at);
+  }
+
+  /** Called every animation frame while playing: schedule the clicks of this frame. */
+  function soundFrame(t, dtMs) {
+    if (!sound.on || !sound.ctx || !state.result) return;
+    const ac = sound.ctx;
+    const now = ac.currentTime;
+    const layer = state.result.layers[0];
+    if (t < 0) {
+      // the pen: a tick for every few dots plotted, pitched by how far along the walk it is
+      const visible = Math.floor((t + 1) * layer.count);
+      const fresh = Math.max(0, visible - sound.lastVisible);
+      sound.lastVisible = visible;
+      const ticks = Math.min(6, Math.round(fresh / 40));
+      for (let i = 0; i < ticks; i++) click(now + (i / ticks) * (dtMs / 1000), 3200 + (visible / layer.count) * 1800, 0.05);
+      return;
+    }
+    sound.lastVisible = 0;
+    // the marbles: clicks per second follow the share of moves accepted in this pass
+    const pass = Math.min(layer.acceptance.length - 1, Math.floor(t));
+    const accepted = pass >= 0 ? layer.acceptance[pass] : 0;
+    const rate = 30 + accepted * 220;
+    sound.carry += (rate * dtMs) / 1000;
+    const count = Math.floor(sound.carry);
+    sound.carry -= count;
+    for (let i = 0; i < Math.min(count, 12); i++) {
+      click(now + Math.random() * (dtMs / 1000), 1800 + Math.random() * 2600, 0.035 + Math.random() * 0.05);
+    }
+  }
+
+  function setSound(on) {
+    sound.on = on;
+    ui.soundBtn.setAttribute('aria-pressed', String(on));
+    storageSet('trix:sound', on ? 'on' : 'off');
+    if (on && audioContext()) {
+      click(sound.ctx.currentTime + 0.01, 2600, 0.08);
+      click(sound.ctx.currentTime + 0.09, 3400, 0.06);
+    }
   }
 
   /* =========================================================== *
@@ -4258,7 +4430,7 @@
       `<span><b>${dots.toLocaleString('en')}</b> dots</span>`,
       `<span><b>${r.width} × ${r.height}</b> cells</span>`,
       `<span>${((dots / cells / r.layers.length) * 100).toFixed(1)}% of cells inked</span>`,
-      `<span>walk: <b>${PATH_NAMES[r.settings.path] || r.settings.path}</b></span>`,
+      `<span>walk: <b>${escapeHtml(PATH_NAMES[r.settings.path] || String(r.settings.path))}</b></span>`,
       `<span><b>${r.iterations}</b> shakes</span>`,
       `<span>${Math.round(r.ms)} ms</span>`,
       `<span>seed <b>${escapeHtml(String(r.seed))}</b></span>`
@@ -4272,13 +4444,23 @@
   }
 
   let labTimer = 0;
+  let labPending = false;
   let labHistogram = null;
 
   /** Nearest-neighbour spacing of the dots on screen: spikes on the grid, a smooth hump once shaken. */
   function updateLab(force) {
     if (!state.result || !$('#spacingCanvas').offsetParent) return;
-    if (!force && labTimer) return;
-    labTimer = setTimeout(() => { labTimer = 0; }, 120);
+    if (!force && labTimer) {
+      labPending = true;
+      return;
+    }
+    labTimer = setTimeout(() => {
+      labTimer = 0;
+      if (labPending) {
+        labPending = false;
+        updateLab(false);
+      }
+    }, 120);
     const r = state.result;
     const frame = currentFrame();
     const layer = frame.layers[0];
@@ -4706,7 +4888,7 @@
       thumbEngine = createEngine((result, job) => {
         drawThumbnail(job.meta.card, result);
         nextThumbnail();
-      });
+      }, null, nextThumbnail);
     }
     const tone = {};
     for (const key of TONE_KEYS) tone[key] = state.machine[key];
@@ -4774,7 +4956,7 @@
    *  History, persistence, links                                 *
    * =========================================================== */
 
-  const history = [];
+  const undoStack = [];
   let commitTimer = 0;
 
   const snapshotSettings = () => JSON.stringify({ machine: state.machine, look: state.look, stamp: state.stamp, recipe: state.activeRecipe });
@@ -4786,20 +4968,64 @@
 
   function commitNow() {
     const snap = snapshotSettings();
-    if (history[history.length - 1] !== snap) {
-      history.push(snap);
-      if (history.length > 100) history.shift();
+    if (undoStack[undoStack.length - 1] !== snap) {
+      undoStack.push(snap);
+      if (undoStack.length > 100) undoStack.shift();
     }
     storageSet(STORAGE_KEY, snap);
+  }
+
+  // Values that come back from links, storage or presets are untrusted:
+  // they must have the default's type, a known option, a hex colour, a sane length.
+  const CHOICES = {
+    'machine.path': Object.keys(T.PATHS),
+    'machine.territoryMode': ['adaptive', 'fixed'],
+    'machine.colorMode': ['mono', 'cmyk', 'rgb'],
+    'machine.orientation': [0, 1, 2, 3, 4, 5, 6, 7],
+    'machine.aspect': [1, 0.8],
+    'look.style': Object.keys(STYLE_NAMES),
+    'stamp.sheet': [1, 2, 4, 16],
+    'stamp.background': ['kraft', 'album', 'linen', 'none']
+  };
+  const HEX_COLOUR = /^#[0-9a-f]{6}$/i;
+
+  function sanitize(target, data) {
+    const defaults = defaultsFor(target);
+    const out = Object.assign({}, defaults);
+    if (!data || typeof data !== 'object') return out;
+    for (const key of Object.keys(defaults)) {
+      const value = data[key];
+      const fallback = defaults[key];
+      if (value === undefined || typeof value !== typeof fallback) continue;
+      const choices = CHOICES[`${target}.${key}`];
+      if (choices) {
+        if (choices.includes(value)) out[key] = value;
+        continue;
+      }
+      if (typeof value === 'number') {
+        if (!Number.isFinite(value)) continue;
+        const spec = allSpecs.find(sp => sp.target === target && sp.key === key && sp.min !== undefined);
+        out[key] = spec ? clamp(value, spec.min, spec.max) : value;
+      } else if (typeof value === 'string') {
+        if (/Color$/.test(key)) {
+          if (HEX_COLOUR.test(value)) out[key] = value;
+        } else {
+          out[key] = value.slice(0, 60);
+        }
+      } else if (typeof value === 'boolean') {
+        out[key] = value;
+      }
+    }
+    return out;
   }
 
   function restoreSettings(json) {
     try {
       const data = JSON.parse(json);
-      state.machine = Object.assign({}, MACHINE_DEFAULTS, data.machine || {});
-      state.look = Object.assign({}, LOOK_DEFAULTS, data.look || {});
-      state.stamp = Object.assign({}, STAMP_DEFAULTS, data.stamp || {});
-      state.activeRecipe = data.recipe === undefined ? null : data.recipe;
+      state.machine = sanitize('machine', data.machine);
+      state.look = sanitize('look', data.look);
+      state.stamp = sanitize('stamp', data.stamp);
+      state.activeRecipe = RECIPE_CARDS.some(card => card.id === data.recipe) ? data.recipe : null;
       return true;
     } catch (err) {
       return false;
@@ -4809,11 +5035,11 @@
   function undo() {
     clearTimeout(commitTimer);
     const current = snapshotSettings();
-    if (history.length && history[history.length - 1] !== current) {
-      restoreSettings(history[history.length - 1]);
-    } else if (history.length > 1) {
-      history.pop();
-      restoreSettings(history[history.length - 1]);
+    if (undoStack.length && undoStack[undoStack.length - 1] !== current) {
+      restoreSettings(undoStack[undoStack.length - 1]);
+    } else if (undoStack.length > 1) {
+      undoStack.pop();
+      restoreSettings(undoStack[undoStack.length - 1]);
     } else {
       toast('Nothing to undo');
       return;
@@ -4852,9 +5078,9 @@
     try {
       const json = decodeURIComponent(escape(atob(match[1].replace(/-/g, '+').replace(/_/g, '/'))));
       const data = JSON.parse(json);
-      state.machine = Object.assign({}, MACHINE_DEFAULTS, data.m);
-      state.look = Object.assign({}, LOOK_DEFAULTS, data.l);
-      state.stamp = Object.assign({}, STAMP_DEFAULTS, data.s);
+      state.machine = sanitize('machine', data.m);
+      state.look = sanitize('look', data.l);
+      state.stamp = sanitize('stamp', data.s);
       state.activeRecipe = null;
       return true;
     } catch (err) {
@@ -5035,7 +5261,21 @@
     const note = scene.kind === 'stamp'
       ? `Trix · seed “${state.machine.seed}” · ${scene.stamps.length > 1 ? `${scene.stamps.length} stamps` : 'one stamp'} at true size (20.8 × 25.6 mm). Not valid for postage.`
       : `Trix · seed “${state.machine.seed}” · ${state.result.width} × ${state.result.height} cells`;
-    ui.printArea.innerHTML = `${svg}<p>${escapeHtml(note)}</p>`;
+    const parsed = new DOMParser().parseFromString(svg, 'image/svg+xml').documentElement;
+    if (!parsed || parsed.nodeName !== 'svg') {
+      toast('Could not prepare the print');
+      return;
+    }
+    for (const el of [parsed, ...parsed.querySelectorAll('*')]) {
+      if (/^(script|foreignObject|iframe)$/i.test(el.nodeName)) { el.remove(); continue; }
+      for (const attr of [...el.attributes]) {
+        const name = attr.name.toLowerCase();
+        if (name.startsWith('on') || (/href$/.test(name) && !attr.value.startsWith('#'))) el.removeAttribute(attr.name);
+      }
+    }
+    const caption = document.createElement('p');
+    caption.textContent = note;
+    ui.printArea.replaceChildren(document.importNode(parsed, true), caption);
     if (scene.kind === 'field') {
       const el = $('svg', ui.printArea);
       el.setAttribute('width', '160mm');
@@ -5061,8 +5301,12 @@
       await navigator.clipboard.writeText(link);
       toast('Link with these settings copied (your photo stays here)');
     } catch (err) {
-      history.replaceState && window.history.replaceState(null, '', link);
-      toast('Link put in the address bar');
+      try {
+        window.history.replaceState(null, '', link);
+        toast('Clipboard unavailable: the link is now in the address bar');
+      } catch (inner) {
+        toast('Could not copy the link');
+      }
     }
   }
 
@@ -5071,6 +5315,7 @@
    * =========================================================== */
 
   const booth = {
+    session: 0,
     stream: null,
     liveEngine: null,
     liveBusy: false,
@@ -5086,6 +5331,7 @@
 
   async function openBooth() {
     ui.cameraDialog.showModal();
+    ui.shutterBtn.focus();
     boothError('');
     drawBoothGuide();
     await startCamera();
@@ -5093,6 +5339,8 @@
 
   async function startCamera(deviceId) {
     stopCamera();
+    const session = ++booth.session;
+    const stale = () => session !== booth.session || !ui.cameraDialog.open;
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
       boothError(window.isSecureContext
         ? 'This browser cannot reach a camera.'
@@ -5103,13 +5351,21 @@
       const video = deviceId
         ? { deviceId: { exact: deviceId }, width: { ideal: 1280 }, height: { ideal: 1280 } }
         : { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 1280 } };
-      booth.stream = await navigator.mediaDevices.getUserMedia({ video, audio: false });
-      ui.boothVideo.srcObject = booth.stream;
+      const stream = await navigator.mediaDevices.getUserMedia({ video, audio: false });
+      if (stale()) {
+        // the booth was closed (or another camera chosen) while we waited
+        stream.getTracks().forEach(track => track.stop());
+        return;
+      }
+      booth.stream = stream;
+      ui.boothVideo.srcObject = stream;
       await ui.boothVideo.play();
+      if (stale()) return;
       boothError('');
       listCameras();
       if (ui.boothLive.checked) startLiveMirror();
     } catch (err) {
+      if (stale()) return;
       const messages = {
         NotAllowedError: 'Camera access was refused. Allow it in the address bar, or use Upload instead.',
         NotFoundError: 'No camera found. Plug one in, or use Upload instead.',
@@ -5126,7 +5382,7 @@
       ui.boothDevice.hidden = devices.length < 2;
       const active = booth.stream && booth.stream.getVideoTracks()[0];
       const activeId = active && active.getSettings ? active.getSettings().deviceId : '';
-      ui.boothDevice.innerHTML = devices.map((d, i) => `<option value="${d.deviceId}"${d.deviceId === activeId ? ' selected' : ''}>${escapeHtml(d.label || `Camera ${i + 1}`)}</option>`).join('');
+      ui.boothDevice.innerHTML = devices.map((d, i) => `<option value="${escapeHtml(d.deviceId)}"${d.deviceId === activeId ? ' selected' : ''}>${escapeHtml(d.label || `Camera ${i + 1}`)}</option>`).join('');
     } catch (err) { /* enumerate is best effort */ }
   }
 
@@ -5138,6 +5394,7 @@
   }
 
   function closeBooth() {
+    booth.session++;
     clearInterval(booth.countdown);
     booth.countdown = 0;
     ui.boothCount.innerHTML = '';
@@ -5176,12 +5433,13 @@
   }
 
   function startLiveMirror() {
+    cancelAnimationFrame(booth.raf);
     ui.boothDots.hidden = false;
     if (!booth.liveEngine) {
       booth.liveEngine = createEngine(result => {
         booth.liveBusy = false;
         drawLiveDots(result);
-      });
+      }, null, () => { booth.liveBusy = false; });
     }
     const loop = () => {
       booth.raf = requestAnimationFrame(loop);
@@ -5522,10 +5780,14 @@
    * =========================================================== */
 
   function bindKeyboard() {
+    const INTERACTIVE = 'button, a, input, select, textarea, summary, label, [role="button"], [contenteditable]';
     window.addEventListener('keydown', event => {
-      const typing = event.target.closest && event.target.closest('input[type="text"], textarea, select');
+      const target = event.target && event.target.closest ? event.target : document.body;
+      const typing = target.closest('input[type="text"], input:not([type]), textarea, select, [contenteditable]');
+      // Space and Enter belong to whatever control has focus
+      const onControl = target.closest(INTERACTIVE);
       if (ui.cameraDialog.open) {
-        if ((event.key === ' ' || event.key === 'Enter') && !typing) {
+        if ((event.key === ' ' || event.key === 'Enter') && !onControl) {
           event.preventDefault();
           takePhoto();
         }
@@ -5540,7 +5802,11 @@
       if (typing || event.metaKey || event.ctrlKey || event.altKey) return;
       if (document.querySelector('dialog[open]')) return;
       const key = event.key;
-      if (key === ' ' && !event.target.closest('button')) { event.preventDefault(); play(); }
+      if (key === ' ') {
+        if (onControl) return;
+        event.preventDefault();
+        play();
+      }
       else if (key === 'r' || key === 'R') reshake();
       else if (key === 'c' || key === 'C') openBooth();
       else if (key === 'o' || key === 'O') ui.fileInput.click();
@@ -5552,7 +5818,7 @@
       else if (key === 'S') saveSvg();
       else if (key === '?') ui.keysDialog.showModal();
       else if (key === '\\' && !state.comparing) { state.comparing = true; requestRender(); }
-      else if ((key === 'ArrowLeft' || key === 'ArrowRight') && state.result && event.target === document.body) {
+      else if ((key === 'ArrowLeft' || key === 'ArrowRight') && state.result && !onControl) {
         event.preventDefault();
         stopPlaying();
         const n = state.result.iterations;
@@ -5630,6 +5896,7 @@
     ui.themeBtn.addEventListener('click', toggleTheme);
 
     ui.playBtn.addEventListener('click', play);
+    ui.soundBtn.addEventListener('click', () => setSound(!sound.on));
     ui.timeline.addEventListener('input', () => {
       stopPlaying();
       if (state.result) setTime(timeFromSlider(parseFloat(ui.timeline.value), state.result.iterations));
@@ -5730,7 +5997,7 @@
   function init() {
     for (const id of ['spectrum', 'brand', 'brandMark', 'howBtn', 'keysBtn', 'themeBtn', 'sourceView', 'sourceCanvas', 'eyeBadge', 'cameraBtn', 'uploadBtn', 'fileInput',
       'stage', 'stageCanvas', 'loupeCanvas', 'flash', 'stageBadge', 'stageHint', 'loupeBtn', 'compareBtn', 'stampBtn', 'playBtn', 'acceptanceCanvas', 'timeline',
-      'scrubLabels', 'iterationOut', 'reshakeBtn', 'savePngBtn', 'saveSvgBtn', 'copyBtn', 'movieBtn', 'printBtn', 'printArea', 'onboard', 'onboardCamera', 'onboardUpload', 'linkBtn', 'stats', 'recipes', 'cameraDialog', 'boothVideo', 'boothDots',
+      'scrubLabels', 'iterationOut', 'soundBtn', 'reshakeBtn', 'savePngBtn', 'saveSvgBtn', 'copyBtn', 'movieBtn', 'printBtn', 'printArea', 'onboard', 'onboardCamera', 'onboardUpload', 'linkBtn', 'stats', 'recipes', 'cameraDialog', 'boothVideo', 'boothDots',
       'boothGuide', 'boothCount', 'boothFlash', 'boothLive', 'boothTimer', 'boothMirror', 'boothDevice', 'boothError', 'shutterBtn', 'howDialog', 'keysDialog',
       'dropOverlay', 'toast']) {
       ui[id] = document.getElementById(id);
@@ -5740,14 +6007,15 @@
     const theme = storageGet('trix:theme');
     if (theme === 'light' || theme === 'dark') document.documentElement.dataset.theme = theme;
 
+    // controls first: their ranges are used to validate restored settings
+    buildSpectrum();
+    buildControls();
+    buildRecipes();
     if (!readLink()) {
       const saved = storageGet(STORAGE_KEY);
       if (saved) restoreSettings(saved);
     }
 
-    buildSpectrum();
-    buildControls();
-    buildRecipes();
     bindUi();
     bindCropInteraction();
     bindStageInteraction();
@@ -5757,9 +6025,10 @@
     bindDeviceShake();
     syncControls();
     updateAccent();
+    ui.soundBtn.setAttribute('aria-pressed', String(sound.on));
     commitNow();
 
-    engine = createEngine(onResult, onProgress);
+    engine = createEngine(onResult, onProgress, () => setBusy(false));
     if (!restorePhoto()) setSource(placeholderPortrait(), 'placeholder', { placeholder: true });
     makeBrand(state.machine.seed);
 

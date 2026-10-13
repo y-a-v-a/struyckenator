@@ -351,6 +351,18 @@ describe('one-line tour', () => {
     assert.ok(T.tourLength(pos, optimised) < T.tourLength(pos, greedy));
   });
 
+  test('fuzz: hundreds of small random instances stay permutations and never get longer', () => {
+    const rng = T.createRng('fuzz');
+    for (let run = 0; run < 300; run++) {
+      const n = 4 + Math.floor(rng() * 60);
+      const pos = Float32Array.from({ length: 2 * n }, () => rng() * 20);
+      const greedy = T.lineTour(pos, 20, 20, { passes: 0 });
+      const better = T.lineTour(pos, 20, 20, { passes: 1 + Math.floor(rng() * 6) });
+      assert.ok(isPermutation(better, n), `run ${run}`);
+      assert.ok(T.tourLength(pos, better, true) <= T.tourLength(pos, greedy, true) + 1e-6, `run ${run} got longer`);
+    }
+  });
+
   test('handles tiny inputs', () => {
     assert.deepEqual(Array.from(T.lineTour(Float32Array.from([1, 1, 2, 2]), 4, 4)), [0, 1]);
   });

@@ -219,7 +219,7 @@ describe('trix.html in a browser', { skip: !chromePath && 'Chrome not found (set
     const out = await page.evaluate(() => {
       window.trix.setValue('stamp', 'sheet', 16);
       const svg = window.trix.sceneSvg();
-      const inks = new Set((svg.match(/<use href="#layer0"[^>]*color="(#[0-9a-f]{6})"/g) || []).map(s => s.match(/color="(#[0-9a-f]{6})"/)[1]));
+      const inks = new Set((svg.match(/<use href="#layer0v\d+"[^>]*color="(#[0-9a-f]{6})"/g) || []).map(s => s.match(/color="(#[0-9a-f]{6})"/)[1]));
       return { stamps: (svg.match(/<use href="#stampPaper"/g) || []).length, inks: inks.size };
     });
     assert.equal(out.stamps, 16);
@@ -232,14 +232,14 @@ describe('trix.html in a browser', { skip: !chromePath && 'Chrome not found (set
     await page.evaluate(() => window.trix.setValue('machine', 'aspect', 0.8)); // the field now runs behind the lettering
     await waitForResult(before);
     const hidden = await page.evaluate(() => {
-      const layer = window.trix.frame().layers[0];
-      return layer.hidden ? layer.hidden.reduce((a, b) => a + b, 0) : 0;
+      const map = window.trix.frame().layers[0].hiddenByValue;
+      const hidden = map && map.get(window.trix.state.stamp.value);
+      return hidden ? hidden.reduce((a, b) => a + b, 0) : 0;
     });
     assert.ok(hidden > 0, 'some dots hide behind NEDERLAND / the value');
     const shown = await page.evaluate(() => {
       window.trix.setValue('stamp', 'knockout', false);
-      const layer = window.trix.frame().layers[0];
-      return layer.hidden ? layer.hidden.reduce((a, b) => a + b, 0) : 0;
+      return window.trix.frame().layers[0].hiddenByValue === null ? 0 : -1;
     });
     assert.equal(shown, 0);
     const again = await resultCount();
@@ -301,6 +301,35 @@ describe('trix.html in a browser', { skip: !chromePath && 'Chrome not found (set
     await waitForResult(0);
     const s = await page.evaluate(() => ({ path: window.trix.state.machine.path, seed: window.trix.state.machine.seed, style: window.trix.state.look.style, value: window.trix.state.stamp.value }));
     assert.deepEqual(s, { path: 'spiral', seed: 'koningin', style: 'diamond', value: '1G' });
+  });
+
+  test('a hostile settings link is neutralised', async () => {
+    const payload = {
+      m: { path: '<img src=x onerror=alert(1)>', grid: 1e9, seed: 'ok' },
+      l: { paperColor: '#fff"/><img src=x onerror="window.__pwned=1">', inkColor: 'red', style: 'evil' },
+      s: { background: 'nope', sheet: 3, on: true }
+    };
+    const encoded = Buffer.from(JSON.stringify(payload)).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    await page.goto('about:blank');
+    await page.goto(`${PAGE_URL}#t=${encoded}`, { waitUntil: 'load' });
+    await waitForResult(0);
+    const s = await page.evaluate(() => {
+      const st = window.trix.state;
+      const original = window.print;
+      window.print = () => {};
+      window.trix.printScene();
+      window.print = original;
+      return { path: st.machine.path, grid: st.machine.grid, paper: st.look.paperColor, ink: st.look.inkColor, style: st.look.style, background: st.stamp.background, sheet: st.stamp.sheet, pwned: !!window.__pwned, imgs: document.querySelectorAll('#printArea img').length };
+    });
+    assert.equal(s.path, 'hilbert');
+    assert.equal(s.grid, 256);
+    assert.match(s.paper, /^#[0-9a-f]{6}$/i);
+    assert.match(s.ink, /^#[0-9a-f]{6}$/i);
+    assert.equal(s.style, 'dot');
+    assert.equal(s.background, 'kraft');
+    assert.equal(s.sheet, 1);
+    assert.equal(s.pwned, false);
+    assert.equal(s.imgs, 0);
   });
 
   test('keyboard: T toggles the stamp, ⌘/Ctrl-Z undoes a setting', async () => {
