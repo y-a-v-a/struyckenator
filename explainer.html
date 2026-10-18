@@ -1,0 +1,795 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Struyckenator Lineage</title>
+  <meta name="description" content="How the Struycken stamp algorithm was implemented four times in this repository, which Claude models built each version, and what git history says about them.">
+  <style>
+    :root {
+      --bg: #f4f1ea;
+      --surface: #fffdf8;
+      --ink: #1d1b18;
+      --muted: #6b655c;
+      --rule: #dcd5c8;
+      --accent: #b0302a;
+      --accent-soft: #f3dcd8;
+      --good: #2f6b3a;
+      --bad: #9a3b1c;
+      --mark: #fff1b8;
+      --dot: #1d1b18;
+      --code-bg: #efe9dd;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root:not([data-theme="light"]) {
+        --bg: #16151a;
+        --surface: #1f1e24;
+        --ink: #ece8df;
+        --muted: #a39d92;
+        --rule: #37343c;
+        --accent: #e7685f;
+        --accent-soft: #3a2422;
+        --good: #82c48e;
+        --bad: #ee9a77;
+        --mark: #4a4120;
+        --dot: #ece8df;
+        --code-bg: #29272e;
+      }
+    }
+    :root[data-theme="dark"] {
+      --bg: #16151a;
+      --surface: #1f1e24;
+      --ink: #ece8df;
+      --muted: #a39d92;
+      --rule: #37343c;
+      --accent: #e7685f;
+      --accent-soft: #3a2422;
+      --good: #82c48e;
+      --bad: #ee9a77;
+      --mark: #4a4120;
+      --dot: #ece8df;
+      --code-bg: #29272e;
+    }
+
+    * { box-sizing: border-box; }
+    html { -webkit-text-size-adjust: 100%; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font: 17px/1.6 "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+    }
+    main {
+      max-width: 860px;
+      margin: 0 auto;
+      padding: 48px 16px 96px;
+    }
+    h1, h2, h3 {
+      font-family: "Avenir Next", "Helvetica Neue", Helvetica, Arial, sans-serif;
+      line-height: 1.2;
+      letter-spacing: -0.01em;
+    }
+    h1 { font-size: clamp(2rem, 6vw, 3.1rem); margin: 0 0 8px; }
+    h2 {
+      font-size: 1.5rem;
+      margin: 64px 0 12px;
+      padding-top: 16px;
+      border-top: 1px solid var(--rule);
+    }
+    h3 { font-size: 1.12rem; margin: 28px 0 6px; }
+    p { margin: 0 0 14px; }
+    a { color: var(--accent); }
+    code {
+      font: 0.86em/1.4 ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+      background: var(--code-bg);
+      padding: 1px 5px;
+      border-radius: 4px;
+    }
+    .lede { font-size: 1.15rem; color: var(--muted); max-width: 46em; }
+    .kicker {
+      font: 600 0.78rem/1 "Avenir Next", "Helvetica Neue", Arial, sans-serif;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--accent);
+      margin-bottom: 14px;
+    }
+    .small { font-size: 0.9rem; color: var(--muted); }
+
+    /* Timeline */
+    .timeline { list-style: none; margin: 24px 0 0; padding: 0; }
+    .timeline li {
+      position: relative;
+      padding: 0 0 26px 30px;
+      border-left: 2px solid var(--rule);
+      margin-left: 8px;
+    }
+    .timeline li:last-child { border-left-color: transparent; }
+    .timeline li::before {
+      content: "";
+      position: absolute;
+      left: -8px;
+      top: 4px;
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      background: var(--surface);
+      border: 2px solid var(--accent);
+    }
+    .timeline .when {
+      font: 600 0.82rem/1.3 "Avenir Next", "Helvetica Neue", Arial, sans-serif;
+      color: var(--muted);
+      letter-spacing: 0.03em;
+    }
+    .timeline .what { font-weight: 600; }
+    .who {
+      display: inline-block;
+      font: 600 0.76rem/1 "Avenir Next", "Helvetica Neue", Arial, sans-serif;
+      padding: 4px 8px;
+      border-radius: 999px;
+      background: var(--accent-soft);
+      color: var(--accent);
+      margin: 4px 6px 4px 0;
+      white-space: nowrap;
+    }
+    .who.inferred { background: transparent; border: 1px dashed var(--accent); }
+
+    /* Evidence table */
+    .table-wrap { overflow-x: auto; margin: 16px 0; }
+    table { border-collapse: collapse; width: 100%; font-size: 0.92rem; min-width: 560px; }
+    th, td { text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--rule); vertical-align: top; }
+    th {
+      font: 600 0.78rem/1.2 "Avenir Next", "Helvetica Neue", Arial, sans-serif;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--muted);
+    }
+
+    /* Cards for each implementation */
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--rule);
+      border-radius: 10px;
+      padding: 22px 22px 8px;
+      margin: 22px 0;
+    }
+    .card h3 { margin-top: 0; }
+    .card .meta { font-size: 0.88rem; color: var(--muted); margin-bottom: 12px; }
+    .pros-cons { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+    .pros-cons h4 {
+      font: 600 0.8rem/1 "Avenir Next", "Helvetica Neue", Arial, sans-serif;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      margin: 6px 0 8px;
+    }
+    .pros h4 { color: var(--good); }
+    .cons h4 { color: var(--bad); }
+    .pros-cons ul { margin: 0 0 14px; padding-left: 18px; font-size: 0.95rem; }
+    .pros-cons li { margin-bottom: 6px; }
+    blockquote {
+      margin: 14px 0;
+      padding: 8px 14px;
+      border-left: 3px solid var(--accent);
+      color: var(--muted);
+      font-style: italic;
+    }
+
+    /* Size bars */
+    .bars { margin: 18px 0; }
+    .bar-row {
+      display: grid;
+      grid-template-columns: 9.5em 1fr 4.5em;
+      align-items: center;
+      gap: 10px;
+      font-size: 0.88rem;
+      margin-bottom: 6px;
+    }
+    .bar-track { height: 14px; background: var(--code-bg); border-radius: 3px; overflow: hidden; }
+    .bar-fill { height: 100%; background: var(--accent); }
+    .bar-fill.tests { background: var(--good); }
+    .bar-row .n { text-align: right; font-variant-numeric: tabular-nums; color: var(--muted); }
+
+    /* Demo */
+    .demo-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 14px;
+      margin: 18px 0 10px;
+    }
+    .panel {
+      background: var(--surface);
+      border: 1px solid var(--rule);
+      border-radius: 8px;
+      padding: 10px;
+    }
+    .panel canvas {
+      display: block;
+      width: 100%;
+      aspect-ratio: 1;
+      background: var(--surface);
+    }
+    .panel .label {
+      font: 600 0.8rem/1.3 "Avenir Next", "Helvetica Neue", Arial, sans-serif;
+      margin-top: 8px;
+    }
+    .panel .stats { font-size: 0.78rem; color: var(--muted); line-height: 1.4; min-height: 3.2em; }
+    button {
+      font: 600 0.9rem/1 "Avenir Next", "Helvetica Neue", Arial, sans-serif;
+      background: var(--ink);
+      color: var(--bg);
+      border: 0;
+      border-radius: 6px;
+      padding: 10px 14px;
+      cursor: pointer;
+    }
+    button:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+    .callout {
+      background: var(--mark);
+      border-radius: 8px;
+      padding: 14px 16px;
+      margin: 18px 0;
+      font-size: 0.95rem;
+    }
+
+    @media (max-width: 720px) {
+      .demo-grid { grid-template-columns: 1fr 1fr; }
+      .pros-cons { grid-template-columns: 1fr; gap: 0; }
+      .bar-row { grid-template-columns: 7.5em 1fr 4em; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <div class="kicker">Struyckenator · read from git history</div>
+    <h1>One algorithm, four machines</h1>
+    <p class="lede">
+      In 1981 Peter Struycken and two TU Delft engineers, F.C.A. Groen and P.W. Verbeek,
+      turned a portrait of Queen Beatrix into a field of dots for the Dutch definitive stamp.
+      This repository has re-implemented that procedure several times since May 2025, each
+      time with a different generation of Claude. This page reconstructs who built what,
+      what each version got right and wrong, and why the newest one is so large.
+    </p>
+
+    <h2 id="algorithm">The procedure in two moves</h2>
+    <p>
+      <strong>1. Walk and pour.</strong> The photo becomes a grid of cells, usually 128 × 128,
+      with darkness 0 (white) to 255 (black). A pen meanders through the rows, left to right
+      and then right to left, adding each cell's darkness to a running sum. When the sum reaches
+      255 a dot drops into that cell and the remainder carries on. The source gives a worked
+      example: 40 + 100 + 120 = 260, so the third cell gets a dot and 5 carries over.
+    </p>
+    <p>
+      <strong>2. Shake the box.</strong> The dots still sit on a visible lattice. Each dot owns
+      a round territory. Dots are visited one by one, a die picks up, down, left or right, and
+      the dot steps that way unless it would end up more than three places from where it started
+      or enter another dot's territory. In that case it stays put
+      (<em>"dan moet hij maar op z'n plaats blijven"</em>). Twenty passes melt the lattice into an
+      even spray.
+    </p>
+    <p class="small">
+      Source: Paul Hefting's account at
+      <a href="https://kalden.home.xs4all.nl/stru/struycken-nl.htm">kalden.home.xs4all.nl/stru</a>.
+      Every implementation below quotes it, some more carefully than others.
+    </p>
+
+    <h2 id="who">Who built what</h2>
+    <p>
+      I worked this out from commit authors, <code>Co-Authored-By</code> trailers, branch names,
+      the README's credits, and commit dates compared with Claude release dates. Where git
+      names the model, the attribution is certain. Where it doesn't, the dashed badge marks an
+      inference, with the reasoning given.
+    </p>
+
+    <ol class="timeline">
+      <li>
+        <div class="when">6 May 2025</div>
+        <div class="what">Prelude: <code>index.html</code> (Geometric Grid), <code>index1.html</code> (Struyckenizer), <code>CLAUDE.md</code></div>
+        <span class="who inferred">Claude 3.7 Sonnet (inferred)</span>
+        <p class="small">
+          The restructuring commit <code>2331d8d</code> carries the early Claude Code footer
+          ("Generated with Claude Code", <code>Co-Authored-By: Claude</code>) with no model name.
+          In May 2025, before Claude 4, Claude Code ran on 3.7 Sonnet. These two pages are
+          Struycken-flavored generators, not the stamp algorithm.
+        </p>
+      </li>
+      <li>
+        <div class="when">18 to 21 May 2025</div>
+        <div class="what"><code>index2.html</code>: "added postzegel code" (466 lines), then sliders, zoom and pan, presets, overlay</div>
+        <span class="who inferred">Claude 3.7 Sonnet, likely with 3.5 Sonnet and GPT-4.1</span>
+        <p class="small">
+          These commits are under your name, with no AI trailer. They look like code pasted in
+          from a chat: 466 lines of HTML and a 206-line README landed in one commit. The README
+          written on 21 May credits <em>Claude 3.5 Sonnet, Claude 3.7 Sonnet and GPT-4.1</em>.
+          Claude 4 came out on 22 May 2025, a day later, so no Claude 4 model can have written
+          this. Your guess that Sonnet 3.7 was involved holds up.
+        </p>
+      </li>
+      <li>
+        <div class="when">12 to 13 November 2025</div>
+        <div class="what">15 commits, 9 merged PRs on <code>index2.html</code>: luminance fix, invert, legacy/modern contrast, webcam, 4096 px export, rewrite of the shake rule</div>
+        <span class="who inferred">Claude Sonnet 4.5 (inferred)</span>
+        <p class="small">
+          The author is <code>Claude &lt;noreply@anthropic.com&gt;</code>, on
+          <code>claude/…-011CV…</code> branches: the signature of Claude Code on the web, which
+          writes no model trailer. The dates fall after Sonnet 4.5 (29 Sep 2025) and before
+          Opus 4.5 (24 Nov 2025), and Sonnet 4.5 was the default then. That makes it the most
+          likely author, but git can't prove it.
+        </p>
+      </li>
+      <li>
+        <div class="when">5 July 2026</div>
+        <div class="what"><code>index3.html</code> plus <code>struycken-core.js</code> and tests, then <code>index4.html</code></div>
+        <span class="who">Claude Fable 5</span>
+        <p class="small">Both commits carry <code>Co-Authored-By: Claude Fable 5</code>.</p>
+      </li>
+      <li>
+        <div class="when">13 October 2026, 19:11 to 22:35</div>
+        <div class="what"><code>trix.html</code>: 16 commits, about 6,100 lines of page and 1,100 lines of tests in one evening</div>
+        <span class="who">Claude Opus 5.5</span>
+        <p class="small">Every commit carries <code>Co-Authored-By: Claude Opus 5.5</code> and one Claude Code session link.</p>
+      </li>
+    </ol>
+
+    <div class="callout">
+      <strong>What about Opus 4.6?</strong> Git history has no trace of it. Nothing was committed
+      between 13 November 2025 and 5 July 2026, and Opus 4.6 came out inside that gap. If you
+      used it, it was in a chat that never reached a commit. Also note that
+      <code>trix.html</code> is the newest implementation, not <code>index4.html</code>.
+    </div>
+
+    <div class="bars" aria-label="Lines of code per implementation">
+      <div class="bar-row"><span>index2 (May '25)</span><div class="bar-track"><div class="bar-fill" style="width: 7.6%"></div></div><span class="n">466</span></div>
+      <div class="bar-row"><span>index2 (Nov '25)</span><div class="bar-track"><div class="bar-fill" style="width: 26.4%"></div></div><span class="n">1,611</span></div>
+      <div class="bar-row"><span>index3 + core</span><div class="bar-track"><div class="bar-fill" style="width: 19.0%"></div></div><span class="n">1,162</span></div>
+      <div class="bar-row"><span>index3 tests</span><div class="bar-track"><div class="bar-fill tests" style="width: 5.2%"></div></div><span class="n">318</span></div>
+      <div class="bar-row"><span>index4</span><div class="bar-track"><div class="bar-fill" style="width: 11.4%"></div></div><span class="n">694</span></div>
+      <div class="bar-row"><span>trix.html</span><div class="bar-track"><div class="bar-fill" style="width: 100%"></div></div><span class="n">6,103</span></div>
+      <div class="bar-row"><span>trix tests</span><div class="bar-track"><div class="bar-fill tests" style="width: 18.5%"></div></div><span class="n">1,132</span></div>
+    </div>
+
+    <h2 id="versions">The implementations, one by one</h2>
+    <p class="small">
+      Lens: I judge each version on two things, fidelity to Hefting's description and how well
+      the engineering holds up. That lens misses aesthetics. An "unfaithful" shake can make a
+      lovelier picture, and Struycken himself treated the procedure as material, not scripture.
+    </p>
+
+    <div class="card">
+      <h3>index2, first version: the chat-era prototype</h3>
+      <div class="meta">May 2025 · Claude 3.7 Sonnet (inferred) · commit <code>f40a524</code> and follow-ups</div>
+      <div class="pros-cons">
+        <div class="pros">
+          <h4>Good</h4>
+          <ul>
+            <li>Phase 1 was right from day one: meander, carry, threshold at 255.</li>
+            <li>A spatial hash for the territory checks and a Fisher-Yates shuffle: real engineering, not toy code.</li>
+            <li>A thorough README that tells the history of the stamp, the analogy of marbles in a box, and the two-phase structure.</li>
+            <li>Within three days it gained a tone toolkit (brightness and contrast per range), zoom and pan, presets, and an overlay. That was enough to start playing with your own photos.</li>
+          </ul>
+        </div>
+        <div class="cons">
+          <h4>Bad</h4>
+          <ul>
+            <li>It read "at most three places" as the length of each step, not as a distance from the origin. Nothing records where a dot started, so over 20 passes a dot in a light area can drift far from its cell.</li>
+            <li>Moves go in random directions, rounded to whole cells, with five retries per dot. The source says one die roll and four directions.</li>
+            <li>The territory is a minimum distance of 2 cells, but phase 1 puts dots in adjacent cells, only 1 apart. Dense dark areas freeze on the lattice while sparse light areas wander. That is the opposite of what you want.</li>
+            <li>Phase 1 averaged RGB while the preview used luminance, so the dots disagreed with what you saw.</li>
+            <li>It used unseeded <code>Math.random</code>, so no result can be reproduced. The original's anti-counterfeiting idea depends on exactly that reproducibility.</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>index2, November patches: correcting it in small steps</h3>
+      <div class="meta">Nov 2025 · Claude Sonnet 4.5 (inferred) · PRs #1 to #9</div>
+      <div class="pros-cons">
+        <div class="pros">
+          <h4>Good</h4>
+          <ul>
+            <li>It went back to the Dutch text and quoted it in a commit: <em>"naar onderen of naar boven, of naar links en rechts"</em>. That gave four cardinal directions.</li>
+            <li>It moved step by step toward the faithful rule: cardinal moves, then exactly one cell, then 0.25-cell sub-steps with each dot tied to its origin.</li>
+            <li>It fixed the luminance mismatch and added useful workflow features: webcam capture, 4096 px export, a background gray for transparent PNGs, and a reset that keeps the image.</li>
+            <li>Small, scoped PRs with very clear commit messages. Easy to review.</li>
+          </ul>
+        </div>
+        <div class="cons">
+          <h4>Bad</h4>
+          <ul>
+            <li>Patch on patch: three different readings of "3 places" in one evening, each presented with confidence.</li>
+            <li>The meaning of the slider drifted: <code>territoryRadius</code> became <code>movementStep</code>, and in the code it acts as <code>subgridOffset</code>.</li>
+            <li>The bounds disagree. Dots are skipped at <code>&gt;= 3</code> cells, but the limit is enforced at <code>3 × subgridOffset</code>.</li>
+            <li>It kept five attempts per dot and stayed unseeded, with no tests. Each fix answered your last complaint and nothing more.</li>
+            <li>"Modern (CS3+)" brightness is a plausible S-curve, not Photoshop's actual formula.</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>index3 and index4: the faithful reference</h3>
+      <div class="meta">Jul 2026 · Claude Fable 5 · commits <code>c0c86b4</code>, <code>1b7417c</code></div>
+      <div class="pros-cons">
+        <div class="pros">
+          <h4>Good</h4>
+          <ul>
+            <li>A rewrite grounded in Hefting's text: one die roll per dot per pass, four directions, at most three sub-steps from the origin on each axis, and a move that breaks either rule leaves the dot where it is.</li>
+            <li>A DOM-free, UMD core (<code>struycken-core.js</code>) that runs in the browser and under <code>node --test</code>.</li>
+            <li>Deterministic: mulberry32, seeded with 1981 by default. A seed reproduces a pattern exactly and can be shared as a link.</li>
+            <li>14 tests, including the source's own 40 + 100 + 120 example and a brute-force check of the territory rule. The same suite runs from a button in the page.</li>
+            <li>index4 reuses that engine for the everyday app, adding upload, drag-and-drop, paste, crop, presets, PNG and SVG export. It also waits for the webcam to report a frame size before capturing.</li>
+          </ul>
+        </div>
+        <div class="cons">
+          <h4>Bad</h4>
+          <ul>
+            <li>The text gives no territory size or subgrid, so 0.8 cells and 4 subdivisions are choices. They are sensible, but they are not "faithful".</li>
+            <li>Being strict makes it conservative: dots move at most ±0.75 cell, so with some settings traces of the lattice stay visible.</li>
+            <li>One fixed territory for every tone, as in 1983. Light areas look clumpy next to blue noise.</li>
+            <li>Two pages (reference and app) partly duplicate index2's UI plumbing.</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Trix: the reinterpretation</h3>
+      <div class="meta">Oct 2026 · Claude Opus 5.5 · <code>823e61c</code> to <code>ce3f9eb</code>, live on GitHub Pages</div>
+      <div class="pros-cons">
+        <div class="pros">
+          <h4>Good</h4>
+          <ul>
+            <li><strong>It names what the original is.</strong> Phase 1 is one member of a family of space-filling walks (Hilbert/gilbert, spiral, diagonal), close to Riemersma dithering. Phase 2 is hard-disk Metropolis Monte Carlo (1953). Once both are named, "Struycken 1983" becomes one recipe among twelve.</li>
+            <li>Integer arithmetic conserves ink exactly (dots × 255 + carry = total darkness), and a test proves it.</li>
+            <li>Territories follow the tone (a share of 1/√density). Steps are drawn as <code>max · u²</code>, overlapping dots are allowed to relax apart, and step size can anneal. The README notes that with uniform steps the dark areas stayed on the grid. <em>The tests caught this.</em> That is the same failure index2 shipped with in 2025.</li>
+            <li>Steeped in stamp culture: perforation at the right gauge, Gerard Unger's lettering through a 30° gravure screen, the seed hidden in microtext, a postmark, and a sheet of sixteen OKLCH colors echoing Struycken's sixteen. A one-line TSP plotter tour nods to the PTT's Dr. Neher Laboratory.</li>
+            <li>Engineering with discipline: three inline scripts (core, render, app), Web Workers created from the script's own source so it works from <code>file://</code>, and 76 tests (unit, photo pipeline with contact sheets, headless Chrome with a fake webcam) that load the engine straight from the shipped HTML.</li>
+            <li>An independent review pass before release found real bugs: untrusted settings were not validated, SVG attributes were not escaped, stale workers were not killed, and a camera stream could arrive after the booth closed.</li>
+          </ul>
+        </div>
+        <div class="cons">
+          <h4>Bad</h4>
+          <ul>
+            <li>6,100 lines in one HTML file. That fits the "self-contained" rule in CLAUDE.md, but it is hard to edit by hand.</li>
+            <li>A large surface means more to break. The final commits fix buttons that couldn't be clicked, overlapping labels and a layout that jumped, all things the first pass got wrong.</li>
+            <li>It departs from the original by default. The headline recipe uses a Hilbert walk and adaptive territories, and the 1983 procedure sits in second place.</li>
+            <li>Sound, a movie export and a shake-your-phone gesture are there to delight, not because the algorithm needs them. Whether that counts as scope creep depends on the brief (see below).</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+
+    <h2 id="demo">See the shake rules side by side</h2>
+    <p>
+      The same synthetic portrait (64 × 64 cells) goes through the same phase 1, followed by
+      three shake rules. The first two panels port the 2025 and 2026 code closely. The last
+      panel is a 60-line sketch of Trix's idea, with tone-adaptive territories, continuous
+      positions, <code>u²</code> steps and relaxation. It is not Trix's engine; for that, open
+      <a href="public/trix.html">public/trix.html</a>.
+    </p>
+    <div class="demo-grid">
+      <div class="panel"><canvas id="cv-grid" width="320" height="320"></canvas><div class="label">Phase 1 only</div><div class="stats" id="st-grid"></div></div>
+      <div class="panel"><canvas id="cv-may" width="320" height="320"></canvas><div class="label">index2, May 2025</div><div class="stats" id="st-may"></div></div>
+      <div class="panel"><canvas id="cv-faithful" width="320" height="320"></canvas><div class="label">index3, faithful 1983</div><div class="stats" id="st-faithful"></div></div>
+      <div class="panel"><canvas id="cv-trix" width="320" height="320"></canvas><div class="label">Trix idea (sketch)</div><div class="stats" id="st-trix"></div></div>
+    </div>
+    <button id="reshake-btn" type="button">Shake again with a new seed</button>
+    <p class="small" style="margin-top: 12px">
+      Things to look for: in the May 2025 panel the dark head barely changes (dots there are
+      locked in) while the light background spreads out, and the largest drift is several cells.
+      The faithful panel never lets a dot move more than 0.75 cell. The sketch makes the
+      highlights evenly airy.
+    </p>
+
+    <h2 id="why">Why is the latest one so feature-rich?</h2>
+    <p>Four reasons, roughly in order of weight:</p>
+    <h3>1. The brief</h3>
+    <p>
+      The November 2025 sessions were steered by narrow asks. Branch names give it away:
+      <code>update-dotsize-slider</code>, <code>fix-dot-movement-algorithm</code>. Each PR does
+      exactly one thing. For Trix you challenged Claude to amaze you and to spend tokens freely.
+      Neither commits nor README record the prompt, so this rests on your account, but the shape
+      of the history fits. The engine came first, with 414 lines of tests, then 4,374 lines of
+      interface in a single commit, then 13 rounds of polish, review and documentation in about
+      three hours. An open brief permits breadth. A narrow brief caps it, whatever the model.
+    </p>
+    <h3>2. The foundation was already settled</h3>
+    <p>
+      index3 had already answered "what exactly did Delft do?" and pinned it down with tests.
+      Trix didn't have to argue about fidelity again. It could treat 1983 as one recipe and spend
+      its effort on generalizing.
+    </p>
+    <h3>3. Tests as a feedback loop, not decoration</h3>
+    <p>
+      May 2025 had no tests. July 2026 tested the algorithm. October 2026 tested the algorithm,
+      real photos (with a tone-fidelity correlation and contact sheets to judge by eye) and the
+      whole UI in headless Chrome. A model that can check its own output can keep building
+      without the structure collapsing. That is what makes a 6,000-line single file workable.
+    </p>
+    <h3>4. Model generation and harness</h3>
+    <p>
+      From pasting chat output (2025) to short web sessions (late 2025) to long autonomous
+      Claude Code sessions with a browser, Node and a review pass (2026): each step let the model
+      work longer before it needed you. Opus 5.5 also brought domain knowledge into the code
+      that earlier versions only quoted: Metropolis, Riemersma, rotogravure screens, Unger's
+      lettering, and stamp gauges.
+    </p>
+
+    <h2 id="lessons">What carries forward</h2>
+    <p>
+      The constant across eighteen months is phase 1. Every version, including the earliest,
+      got the meander and the carry right. Every misstep was in phase 2, which is where the
+      prose is ambiguous ("3 plaatsen" of what?). Better models didn't just write more code.
+      They read the source more carefully, said which parameters they had chosen themselves,
+      and wrote tests that could catch their own misreadings. Trix's README admits that a test
+      caught dark areas freezing on the grid. It's a small note, and the clearest sign of how far
+      the work came from the version that shipped that same bug without noticing.
+    </p>
+    <p class="small">
+      Compiled from <code>git log</code> of y-a-v-a/struyckenator, October 2026. Model release
+      dates come from Anthropic's public announcements. The 2025 model attributions are
+      inferences.
+    </p>
+  </main>
+
+  <script>
+    // Demo: one synthetic portrait, one phase 1, three phase-2 rules.
+    const config = {
+      gridSize: 64,
+      iterations: 20,
+      dotRadius: 0.36
+    };
+
+    // mulberry32, as used by index3 and Trix
+    const createRng = (seed) => {
+      let a = seed >>> 0;
+      return () => {
+        a = (a + 0x6d2b79f5) | 0;
+        let t = Math.imul(a ^ (a >>> 15), 1 | a);
+        t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+        return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+      };
+    };
+
+    const smoothstep = (e0, e1, x) => {
+      const t = Math.min(1, Math.max(0, (x - e0) / (e1 - e0)));
+      return t * t * (3 - 2 * t);
+    };
+
+    // Darkness map (0 white .. 255 black): a lit head and shoulders on a soft gradient
+    const makeDarkness = (n) => {
+      const dark = new Float64Array(n * n);
+      for (let y = 0; y < n; y++) {
+        for (let x = 0; x < n; x++) {
+          const u = (x + 0.5) / n;
+          const v = (y + 0.5) / n;
+          const background = 18 + 50 * v;
+          const headE = ((u - 0.5) / 0.24) ** 2 + ((v - 0.42) / 0.3) ** 2;
+          const shoulderE = ((u - 0.5) / 0.46) ** 2 + ((v - 1.08) / 0.34) ** 2;
+          const light = Math.exp(-((u - 0.42) ** 2 + (v - 0.36) ** 2) / 0.012);
+          const head = 210 - 150 * light;
+          const tHead = smoothstep(1.08, 0.92, headE);
+          const tShoulder = smoothstep(1.08, 0.92, shoulderE);
+          let d = background * (1 - tHead) + head * tHead;
+          d = d * (1 - tShoulder) + 175 * tShoulder;
+          dark[y * n + x] = Math.min(255, Math.max(0, d));
+        }
+      }
+      return dark;
+    };
+
+    // Phase 1: meander with carry (identical in every version)
+    const placePoints = (dark, n) => {
+      const points = [];
+      let sum = 0;
+      for (let y = 0; y < n; y++) {
+        for (let i = 0; i < n; i++) {
+          const x = y % 2 === 0 ? i : n - 1 - i;
+          sum += dark[y * n + x];
+          if (sum >= 255) {
+            points.push({ x, y, ox: x, oy: y });
+            sum -= 255;
+          }
+        }
+      }
+      return points;
+    };
+
+    // Uniform bucket hash over grid cells
+    const makeBuckets = (points, n) => {
+      const buckets = Array.from({ length: n * n }, () => []);
+      const key = (x, y) => Math.min(n - 1, Math.floor(y)) * n + Math.min(n - 1, Math.floor(x));
+      points.forEach((p, i) => buckets[key(p.x, p.y)].push(i));
+      const move = (i, p, nx, ny) => {
+        const from = buckets[key(p.x, p.y)];
+        from.splice(from.indexOf(i), 1);
+        p.x = nx;
+        p.y = ny;
+        buckets[key(nx, ny)].push(i);
+      };
+      const forNear = (x, y, reach, fn) => {
+        const cx = Math.floor(x);
+        const cy = Math.floor(y);
+        for (let by = Math.max(0, cy - reach); by <= Math.min(n - 1, cy + reach); by++) {
+          for (let bx = Math.max(0, cx - reach); bx <= Math.min(n - 1, cx + reach); bx++) {
+            for (const j of buckets[by * n + bx]) {
+              if (fn(j) === false) return false;
+            }
+          }
+        }
+        return true;
+      };
+      return { move, forNear };
+    };
+
+    const shuffle = (arr, rng) => {
+      for (let i = arr.length - 1; i > 0; i--) {
+        const j = Math.floor(rng() * (i + 1));
+        [arr[i], arr[j]] = [arr[j], arr[i]];
+      }
+    };
+
+    // index2, May 2025: any angle, 1..3 cells rounded, 5 attempts, min distance 2, no origin bound
+    const shakeMay2025 = (points, n, iterations, rng) => {
+      const hash = makeBuckets(points, n);
+      const order = points.map((_, i) => i);
+      for (let it = 0; it < iterations; it++) {
+        shuffle(order, rng);
+        for (const i of order) {
+          const p = points[i];
+          for (let attempt = 0; attempt < 5; attempt++) {
+            const angle = rng() * Math.PI * 2;
+            const magnitude = 1 + rng() * 2;
+            const nx = p.x + Math.round(Math.cos(angle) * magnitude);
+            const ny = p.y + Math.round(Math.sin(angle) * magnitude);
+            if (nx < 0 || nx >= n || ny < 0 || ny >= n) continue;
+            const free = hash.forNear(nx, ny, 2, (j) => {
+              if (j === i) return true;
+              return Math.hypot(nx - points[j].x, ny - points[j].y) >= 2;
+            });
+            if (free) {
+              hash.move(i, p, nx, ny);
+              break;
+            }
+          }
+        }
+      }
+    };
+
+    // index3, faithful: one die roll, 4 directions, 1/4-cell step, <= 3 steps from origin, territory 0.8
+    const shakeFaithful = (points, n, iterations, rng) => {
+      const hash = makeBuckets(points, n);
+      const dirs = [[0, -1], [0, 1], [-1, 0], [1, 0]];
+      const step = 0.25;
+      const maxOffset = 3 * step + 1e-9;
+      const minDistSq = 0.8 * 0.8;
+      for (let it = 0; it < iterations; it++) {
+        points.forEach((p, i) => {
+          const [dx, dy] = dirs[Math.floor(rng() * 4)];
+          const nx = p.x + dx * step;
+          const ny = p.y + dy * step;
+          if (nx < 0 || nx > n - 1 || ny < 0 || ny > n - 1) return;
+          if (Math.abs(nx - p.ox) > maxOffset || Math.abs(ny - p.oy) > maxOffset) return;
+          const free = hash.forNear(nx, ny, 1, (j) => {
+            if (j === i) return true;
+            const ddx = nx - points[j].x;
+            const ddy = ny - points[j].y;
+            return ddx * ddx + ddy * ddy >= minDistSq - 1e-9;
+          });
+          if (free) hash.move(i, p, nx, ny);
+        });
+      }
+    };
+
+    // Sketch of the Trix idea: tone-adaptive territories, continuous moves, u^2 steps, relaxation
+    const shakeTrixSketch = (points, n, iterations, rng, dark) => {
+      const packing = 0.72;
+      const maxStep = 1.6;
+      points.forEach((p) => {
+        const density = Math.max(0.05, dark[p.oy * n + p.ox] / 255);
+        p.r = packing / Math.sqrt(density);
+      });
+      const maxR = Math.max(...points.map((p) => p.r));
+      const reach = Math.ceil(maxR);
+      const hash = makeBuckets(points, n);
+      const order = points.map((_, i) => i);
+      for (let it = 0; it < iterations * 2; it++) {
+        shuffle(order, rng);
+        for (const i of order) {
+          const p = points[i];
+          const angle = rng() * Math.PI * 2;
+          const u = rng();
+          const len = maxStep * u * u;
+          const nx = p.x + Math.cos(angle) * len;
+          const ny = p.y + Math.sin(angle) * len;
+          if (nx < 0 || nx > n - 1 || ny < 0 || ny > n - 1) continue;
+          // accept when no territory is invaded, or an existing overlap only shrinks
+          const ok = hash.forNear(nx, ny, reach, (j) => {
+            if (j === i) return true;
+            const q = points[j];
+            const need = 0.5 * (p.r + q.r);
+            const after = Math.hypot(nx - q.x, ny - q.y);
+            if (after >= need) return true;
+            return after >= Math.hypot(p.x - q.x, p.y - q.y);
+          });
+          if (ok) hash.move(i, p, nx, ny);
+        }
+      }
+    };
+
+    const clonePoints = (points) => points.map((p) => ({ x: p.x, y: p.y, ox: p.ox, oy: p.oy }));
+
+    const describe = (points) => {
+      let maxDrift = 0;
+      let sumDrift = 0;
+      let unmoved = 0;
+      for (const p of points) {
+        const d = Math.max(Math.abs(p.x - p.ox), Math.abs(p.y - p.oy));
+        maxDrift = Math.max(maxDrift, d);
+        sumDrift += d;
+        if (d === 0) unmoved++;
+      }
+      const mean = points.length ? sumDrift / points.length : 0;
+      return `${points.length} dots · drift mean ${mean.toFixed(2)}, max ${maxDrift.toFixed(2)} cells · ${Math.round((100 * unmoved) / Math.max(1, points.length))}% back at origin`;
+    };
+
+    const drawPoints = (canvasId, points, n) => {
+      const canvas = document.getElementById(canvasId);
+      if (!canvas) return;
+      const ctx = canvas.getContext('2d');
+      const styles = getComputedStyle(document.documentElement);
+      const size = canvas.width;
+      const scale = size / n;
+      ctx.fillStyle = styles.getPropertyValue('--surface').trim() || '#fff';
+      ctx.fillRect(0, 0, size, size);
+      ctx.fillStyle = styles.getPropertyValue('--dot').trim() || '#000';
+      ctx.beginPath();
+      for (const p of points) {
+        const cx = (p.x + 0.5) * scale;
+        const cy = (p.y + 0.5) * scale;
+        ctx.moveTo(cx + config.dotRadius * scale, cy);
+        ctx.arc(cx, cy, config.dotRadius * scale, 0, Math.PI * 2);
+      }
+      ctx.fill();
+    };
+
+    const setStats = (id, text) => {
+      const el = document.getElementById(id);
+      if (el) el.textContent = text;
+    };
+
+    const runDemo = (seed) => {
+      const n = config.gridSize;
+      const dark = makeDarkness(n);
+      const base = placePoints(dark, n);
+
+      const variants = [
+        { key: 'grid', run: () => {} },
+        { key: 'may', run: (pts, rng) => shakeMay2025(pts, n, config.iterations, rng) },
+        { key: 'faithful', run: (pts, rng) => shakeFaithful(pts, n, config.iterations, rng) },
+        { key: 'trix', run: (pts, rng) => shakeTrixSketch(pts, n, config.iterations, rng, dark) }
+      ];
+      variants.forEach(({ key, run }) => {
+        const pts = clonePoints(base);
+        run(pts, createRng(seed));
+        drawPoints(`cv-${key}`, pts, n);
+        setStats(`st-${key}`, describe(pts));
+      });
+    };
+
+    let currentSeed = 1981;
+    const redraw = () => {
+      try {
+        runDemo(currentSeed);
+      } catch (err) {
+        console.error('Demo failed', err);
+      }
+    };
+    document.getElementById('reshake-btn').addEventListener('click', () => {
+      currentSeed = (Math.random() * 2 ** 32) >>> 0;
+      redraw();
+    });
+    window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', redraw);
+    redraw();
+  </script>
+</body>
+</html>
