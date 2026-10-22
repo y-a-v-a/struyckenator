@@ -110,7 +110,10 @@ black).
 
 - **Source.** Drag to frame your face in the oval, scroll or pinch to zoom.
   Drop or paste a photo anywhere. *Machine eye* shows the tone map at grid
-  resolution: what the machine actually sees.
+  resolution: what the machine actually sees. Until you bring a photo,
+  Rembrandt sits in with his Self-Portrait of 1659, its dark ground lifted to
+  pale paper so the dots gather on the head. Your last photo comes back on
+  reload instead.
 - **Photo booth.** A webcam view with an oval guide and a **live dot
   mirror**, on by default, that runs the machine on the video in real time.
   It also has a 3-second timer, shutter sound and flash, a mirror switch, and
@@ -155,12 +158,13 @@ by link, from storage or from presets are validated before use.
 
 ## Architecture
 
-`trix.html` contains three inline scripts:
+`trix.html` contains four inline scripts:
 
 | Script | Role |
 | --- | --- |
 | `trix-core` | The engine. Pure functions, no DOM. The same text runs in the page, in Web Workers (spawned from a Blob of the script's own source, so it works from `file://`), and in Node. |
 | `trix-render` | Scene geometry and drawing. It draws on any 2D context it is given, or returns SVG text, so stage, loupe, PNG, SVG and movie share one code path. |
+| `trix-sitter` | The default sitter, Rembrandt, as a WebP data URL. Inlined because an image file beside the page would taint the canvas on `file://`. If it does not decode, a drawn bust sits in. |
 | `trix-app` | UI state, the worker engine (newer jobs replace queued ones, stale long jobs are terminated), crop, controls built from a declarative spec, timeline, recipes, booth, export. |
 
 ## Tests
@@ -194,4 +198,6 @@ exactly what ships.
 Algorithm and stamp after Peter Struycken, F.C.A. Groen and P.W. Verbeek
 (TU Delft) and Gerard Unger (lettering). Background:
 <https://kalden.home.xs4all.nl/stru/struycken-nl.htm>.
+Default sitter: Rembrandt van Rijn, *Self-Portrait*, 1659, National Gallery
+of Art, Washington (public domain, via Wikimedia Commons).
 Implementation by Vincent Bruijn with Claude (Anthropic), 2026.

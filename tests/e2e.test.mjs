@@ -65,13 +65,15 @@ describe('trix.html in a browser', { skip: !chromePath && 'Chrome not found (set
     if (browser) await browser.close();
   });
 
-  test('loads and dots the placeholder portrait without errors', async () => {
+  test('loads and dots the default sitter, Rembrandt, without errors', async () => {
     const info = await page.evaluate(() => ({
       dots: window.trix.state.result.layers[0].count,
       placeholder: window.trix.state.source.placeholder,
+      name: window.trix.state.source.name,
       title: document.title
     }));
     assert.ok(info.placeholder);
+    assert.match(info.name, /Rembrandt/);
     assert.ok(info.dots > 500, `only ${info.dots} dots`);
     assert.match(info.title, /Trix/);
     const network = problems.filter(p => !/net::ERR_FAILED|Failed to load resource/.test(p));
