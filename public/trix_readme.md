@@ -111,9 +111,8 @@ black).
 - **Source.** Drag to frame your face in the oval, scroll or pinch to zoom.
   Drop or paste a photo anywhere. *Machine eye* shows the tone map at grid
   resolution: what the machine actually sees. Until you bring a photo,
-  Rembrandt sits in with his Self-Portrait of 1659, its dark ground lifted to
-  pale paper so the dots gather on the head. Your last photo comes back on
-  reload instead.
+  Rembrandt sits in with his Self-Portrait of 1659, the whole painting. Your
+  last photo comes back on reload instead.
 - **Photo booth.** A webcam view with an oval guide and a **live dot
   mirror**, on by default, that runs the machine on the video in real time.
   It also has a 3-second timer, shutter sound and flash, a mirror switch, and
